@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,17 +67,23 @@ describe("MVP integration", () => {
       JSON.stringify({
         type: "final",
         summary: "parseUser now handles empty input.",
-        tests: "not run",
-        changedFiles: ["parseUser.ts"]
+        tests: "npm test passed",
+        changedFiles: ["fake.ts"]
       })
     ]);
 
     const result = await runAgentTask({ userRequest: "handle empty parseUser input", context, llm });
+    const content = await readFile(join(root, "parseUser.ts"), "utf8");
+    const lastObservation = result.session.observations.at(-1);
 
     expect(result.final.changedFiles).toEqual(["parseUser.ts"]);
     expect(result.final.tests).toBe("not run");
     expect(result.session.filesRead).toEqual(["parseUser.ts"]);
     expect(result.session.filesModified).toEqual(["parseUser.ts"]);
-    expect(result.session.observations.at(-1)?.tool).toBe("diff");
+    expect(content).toContain("anonymous");
+    expect(lastObservation?.tool).toBe("diff");
+    expect(lastObservation?.ok).toBe(true);
+    expect(lastObservation?.output).toContain("-  return input.trim();");
+    expect(lastObservation?.output).toContain("+  return input.trim() || \"anonymous\";");
   });
 });

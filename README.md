@@ -34,6 +34,7 @@ Example `.code-agent/config.json`:
 ```bash
 code-agent
 code-agent "change this function to handle empty arrays"
+npm run dev -- "change this function to handle empty arrays"
 ```
 
 Built-in commands:
@@ -51,4 +52,4 @@ Built-in commands:
 2. Add a `Claude.md` with project conventions and test commands.
 3. Configure `CODE_AGENT_BASE_URL`, `CODE_AGENT_API_KEY`, and `CODE_AGENT_MODEL`.
 4. Run `code-agent "change parseUser so empty input returns anonymous"`.
-5. Confirm the agent prints a plan, searches and reads relevant files, applies one small edit, runs an allowed test or build command when requested by the model, and prints changed files plus a diff.
+5. Confirm the agent prints a plan, searches and reads relevant files, applies one small edit, runs an allowed test or build command when requested by the model, and prints changed files. Current diffs are available through `/diff` in Git workspaces or through a model-invoked `diff` tool observation during the task; one-shot final diff output is added by later hardening.
