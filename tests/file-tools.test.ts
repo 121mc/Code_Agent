@@ -30,6 +30,23 @@ describe("file tools", () => {
     expect(result.output).toContain("parser.ts:1");
   });
 
+  it("skips generated and auxiliary workspace directories during search", async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, "lib"));
+    await mkdir(join(root, ".worktrees", "feature"), { recursive: true });
+    await mkdir(join(root, ".dart_tool", "cache"), { recursive: true });
+    await writeFile(join(root, "lib", "main.dart"), "const marker = 'needle';\n");
+    await writeFile(join(root, ".worktrees", "feature", "main.dart"), "const marker = 'needle';\n");
+    await writeFile(join(root, ".dart_tool", "cache", "generated.dart"), "const marker = 'needle';\n");
+
+    const result = await runSearchTool(root, { query: "needle" });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("lib/main.dart:1");
+    expect(result.output).not.toContain(".worktrees");
+    expect(result.output).not.toContain(".dart_tool");
+  });
+
   it("reads a workspace file", async () => {
     const root = await tempRoot();
     await writeFile(join(root, "parser.ts"), "hello\n");

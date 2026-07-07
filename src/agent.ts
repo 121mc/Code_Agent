@@ -22,6 +22,7 @@ export interface RunAgentTaskResult {
 const DEFAULT_MAX_TOOL_CALLS = 20;
 const DEFAULT_MAX_LLM_TURNS = 40;
 const MAX_CONSECUTIVE_TOOL_FAILURES = 3;
+const MAX_OBSERVATION_OUTPUT_BYTES = 12_000;
 
 export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTaskResult> {
   const session = createSession(input.userRequest);
@@ -107,9 +108,11 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
         type: "observation",
         tool: parsed.response.tool,
         ok: observation.ok,
-        output: testFailureAction.guidance
-          ? appendRepairGuidance(observation.output)
-          : observation.output
+        output: compactObservationOutput(
+          testFailureAction.guidance
+            ? appendRepairGuidance(observation.output)
+            : observation.output
+        )
       })
     });
 
@@ -172,6 +175,64 @@ function appendRepairGuidance(output: string): string {
     output,
     "One automatic repair attempt is allowed. Diagnose and emit the next tool call."
   ].join("\n");
+}
+
+function compactObservationOutput(output: string): string {
+  const originalBytes = Buffer.byteLength(output, "utf8");
+  if (originalBytes <= MAX_OBSERVATION_OUTPUT_BYTES) {
+    return output;
+  }
+
+  const marker = [
+    "",
+    `[... output truncated: ${originalBytes} bytes total. Showing the start and end only; use search for specific text before editing. ...]`,
+    ""
+  ].join("\n");
+  const edgeBudget = MAX_OBSERVATION_OUTPUT_BYTES - Buffer.byteLength(marker, "utf8");
+  const headBudget = Math.ceil(edgeBudget / 2);
+  const tailBudget = Math.floor(edgeBudget / 2);
+
+  return [
+    takeUtf8Prefix(output, headBudget),
+    marker,
+    takeUtf8Suffix(output, tailBudget)
+  ].join("");
+}
+
+function takeUtf8Prefix(value: string, maxBytes: number): string {
+  let bytes = 0;
+  let end = 0;
+
+  for (const char of value) {
+    const charBytes = Buffer.byteLength(char, "utf8");
+    if (bytes + charBytes > maxBytes) {
+      break;
+    }
+
+    bytes += charBytes;
+    end += char.length;
+  }
+
+  return value.slice(0, end);
+}
+
+function takeUtf8Suffix(value: string, maxBytes: number): string {
+  const chars = Array.from(value);
+  let bytes = 0;
+  let start = chars.length;
+
+  for (let index = chars.length - 1; index >= 0; index -= 1) {
+    const char = chars[index] ?? "";
+    const charBytes = Buffer.byteLength(char, "utf8");
+    if (bytes + charBytes > maxBytes) {
+      break;
+    }
+
+    bytes += charBytes;
+    start = index;
+  }
+
+  return chars.slice(start).join("");
 }
 
 function summarizeTests(session: SessionState): string {

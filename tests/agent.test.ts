@@ -190,6 +190,28 @@ describe("agent orchestrator", () => {
     });
   });
 
+  it("compacts large tool observations before sending them back to the model", async () => {
+    const root = await tempRoot();
+    const largeContent = `start\n${"x".repeat(40_000)}\nend\n`;
+    await writeFile(join(root, "large.txt"), largeContent);
+    const context = await loadProjectContext(root);
+    const llm = new MockLLM([
+      JSON.stringify({ type: "plan", summary: "Read large file", steps: ["Read large file"] }),
+      JSON.stringify({ type: "tool_call", tool: "read_file", args: { path: "large.txt" } }),
+      JSON.stringify({ type: "final", summary: "Read compacted output", tests: "not run", changedFiles: [] })
+    ]);
+
+    await runAgentTask({ userRequest: "read large file", context, llm });
+
+    const observationMessage = llm.calls[2]?.at(-1);
+    expect(observationMessage?.role).toBe("user");
+    const observation = JSON.parse(observationMessage?.content ?? "{}") as { output?: string };
+    expect(observation.output).toContain("start");
+    expect(observation.output).toContain("end");
+    expect(observation.output).toContain("output truncated");
+    expect(Buffer.byteLength(observation.output ?? "", "utf8")).toBeLessThanOrEqual(12_000);
+  });
+
   it("stops after reaching the tool call limit", async () => {
     const root = await tempRoot();
     await writeFile(join(root, "parser.ts"), "export const parseUser = true;\n");

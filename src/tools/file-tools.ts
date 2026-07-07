@@ -27,7 +27,16 @@ export interface FileToolOptions {
   approvedRealPath?: string;
 }
 
-const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage"]);
+const IGNORED_DIRECTORIES = new Set([
+  ".dart_tool",
+  ".git",
+  ".gradle",
+  ".worktrees",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules"
+]);
 const MAX_READ_BYTES = 256_000;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
