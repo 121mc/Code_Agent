@@ -123,10 +123,9 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
 }
 
 function reconcileFinalResponse(final: FinalResponse, session: SessionState): FinalResponse {
-  const testSummary = summarizeTests(session);
   return {
     ...final,
-    tests: testSummary === "not run" ? final.tests : testSummary,
+    tests: summarizeTests(session),
     changedFiles: [...session.filesModified]
   };
 }

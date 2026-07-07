@@ -148,6 +148,20 @@ describe("agent orchestrator", () => {
     expect(result.final.tests).toBe("npm run build exited 0");
   });
 
+  it("ignores model-supplied test claims when no test command ran", async () => {
+    const root = await tempRoot();
+    const context = await loadProjectContext(root);
+    const llm = new MockLLM([
+      JSON.stringify({ type: "plan", summary: "No checks", steps: ["Finish"] }),
+      JSON.stringify({ type: "final", summary: "Finished", tests: "npm test passed", changedFiles: [] })
+    ]);
+
+    const result = await runAgentTask({ userRequest: "finish without checks", context, llm });
+
+    expect(result.session.commandResults).toEqual([]);
+    expect(result.final.tests).toBe("not run");
+  });
+
   it("sends plan and observation messages in order", async () => {
     const root = await tempRoot();
     await writeFile(join(root, "parser.ts"), "export const parseUser = true;\n");
