@@ -1,12 +1,15 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSession } from "../src/session.js";
 import { runCommandTool, runDiffTool, type CommandExecutor } from "../src/tools/process-tools.js";
 import { dispatchToolCall } from "../src/tools/router.js";
 
 const tempRoots: string[] = [];
+const execFileAsync = promisify(execFile);
 
 async function tempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "code-agent-process-"));
@@ -71,6 +74,39 @@ describe("process tools", () => {
     expect(result.output).toContain("+after");
   });
 
+  it("falls back to session snapshots when Git diff is empty", async () => {
+    const root = await tempRoot();
+    await execFileAsync("git", ["init"], { cwd: root });
+    const session = createSession("change untracked file");
+    await writeFile(join(root, "untracked.txt"), "after\n");
+    session.preEditSnapshots.set("untracked.txt", "before\n");
+    session.filesModified.push("untracked.txt");
+
+    const result = await runDiffTool(root, session, true);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("--- a/untracked.txt");
+    expect(result.output).toContain("+++ b/untracked.txt");
+    expect(result.output).toContain("-before");
+    expect(result.output).toContain("+after");
+    expect(result.output).not.toBe("No diff.");
+  });
+
+  it("falls back to session snapshots when Git diff fails", async () => {
+    const root = await tempRoot();
+    const session = createSession("change file in misdetected Git workspace");
+    await writeFile(join(root, "a.txt"), "after\n");
+    session.preEditSnapshots.set("a.txt", "before\n");
+    session.filesModified.push("a.txt");
+
+    const result = await runDiffTool(root, session, true);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("--- a/a.txt");
+    expect(result.output).toContain("-before");
+    expect(result.output).toContain("+after");
+  });
+
   it("shows removed duplicate lines in non-Git snapshot diffs", async () => {
     const root = await tempRoot();
     const session = createSession("remove duplicate line");
@@ -129,6 +165,15 @@ describe("process tools", () => {
     expect(result.output).toContain("Large diff omitted");
     expect(result.output).toContain("before 350 lines");
     expect(result.output).toContain("after 350 lines");
+  });
+});
+
+describe("README manual acceptance", () => {
+  it("documents current final one-shot diff output", async () => {
+    const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
+
+    expect(readme).toContain("prints a final one-shot diff");
+    expect(readme).not.toContain("one-shot final diff output is added by later hardening");
   });
 });
 

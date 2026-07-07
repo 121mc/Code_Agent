@@ -1,7 +1,7 @@
 import { readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, join, normalize, relative } from "node:path";
 import { classifyFileAction, isPathInsideRoot, resolveWorkspacePath } from "../permissions.js";
-import { recordModifiedFile, recordReadFile, type SessionState } from "../session.js";
+import { recordModifiedFile, recordPreEditSnapshot, recordReadFile, type SessionState } from "../session.js";
 
 export interface ToolResult {
   ok: boolean;
@@ -113,12 +113,16 @@ export async function runEditFileTool(
   }
 
   const after = before.replace(args.search, args.replace);
-  recordModifiedFile(session, workspaceFile.file.relativePath, before);
+  recordPreEditSnapshot(session, workspaceFile.file.relativePath, before);
 
   try {
     await writeFile(workspaceFile.file.path, after);
   } catch (error) {
     return { ok: false, output: formatError(`Failed to edit ${workspaceFile.file.relativePath}`, error) };
+  }
+
+  if (after !== before) {
+    recordModifiedFile(session, workspaceFile.file.relativePath);
   }
 
   return { ok: true, output: `Edited ${workspaceFile.file.relativePath}.` };

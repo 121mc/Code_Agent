@@ -233,7 +233,7 @@ describe("file tools", () => {
 
       expect(result.ok).toBe(false);
       expect(result.output).toContain("disk full");
-      expect(session.filesModified).toEqual(["parser.ts"]);
+      expect(session.filesModified).toEqual([]);
       expect(session.preEditSnapshots.get("parser.ts")).toBe("export const value = 1;\n");
       expect(await readFile(join(root, "parser.ts"), "utf8")).toBe("export const value = 1;\n");
     } finally {

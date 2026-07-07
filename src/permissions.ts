@@ -64,7 +64,7 @@ export function classifyCommand(command: string): PermissionResult {
   const normalized = command.trim().replace(/\s+/g, " ");
   const lower = normalized.toLowerCase();
 
-  if (/^(npm|pnpm|yarn)\s+(test|run\s+test|run\s+build|run\s+lint|lint|build)$/.test(lower)) {
+  if (isAllowedLowRiskCommand(lower)) {
     return { decision: "allow", reason: "Test, lint, or build command is allowed." };
   }
 
@@ -81,6 +81,15 @@ export function classifyCommand(command: string): PermissionResult {
   }
 
   return { decision: "confirm", reason: "Unrecognized command requires confirmation." };
+}
+
+function isAllowedLowRiskCommand(command: string): boolean {
+  return (
+    /^(npm|pnpm|yarn)\s+(?:run\s+)?test(?:\s|$)/.test(command) ||
+    /^(npm|pnpm|yarn)\s+(run\s+build|run\s+lint|lint|build)$/.test(command) ||
+    /^npx\s+(vitest|jest|mocha)(?:\s|$)/.test(command) ||
+    /^node\s+--test(?:\s|$)/.test(command)
+  );
 }
 
 function hasDestructiveCommand(command: string): boolean {

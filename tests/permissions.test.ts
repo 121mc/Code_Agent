@@ -67,6 +67,11 @@ describe("command permission classification", () => {
     expect(classifyCommand("npm run build").decision).toBe("allow");
   });
 
+  it("allows focused package-manager test commands", () => {
+    expect(classifyCommand("npm test -- parseUser").decision).toBe("allow");
+    expect(classifyCommand("npx vitest run").decision).toBe("allow");
+  });
+
   it("requires confirmation for dependency and network commands", () => {
     expect(classifyCommand("npm install left-pad").decision).toBe("confirm");
     expect(classifyCommand("curl https://example.com").decision).toBe("confirm");
@@ -103,6 +108,10 @@ describe("command permission classification", () => {
   it("requires confirmation for non-destructive shell chaining and substitution", () => {
     expect(classifyCommand("npm test && npm run build").decision).toBe("confirm");
     expect(classifyCommand("npm test $(echo ok)").decision).toBe("confirm");
+  });
+
+  it("does not allow dangerous focused-looking test commands", () => {
+    expect(classifyCommand("npm test -- parseUser && rm -rf /").decision).toBe("block");
   });
 
   it("requires confirmation for git remote and history commands", () => {
