@@ -1,5 +1,5 @@
 import { readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { basename, join, normalize, relative } from "node:path";
 import { classifyFileAction, isPathInsideRoot, resolveWorkspacePath } from "../permissions.js";
 import { recordModifiedFile, recordReadFile, type SessionState } from "../session.js";
 
@@ -24,6 +24,7 @@ export interface EditFileArgs {
 
 export interface FileToolOptions {
   skipPermissionCheck?: boolean;
+  approvedRealPath?: string;
 }
 
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage"]);
@@ -164,6 +165,10 @@ async function resolveWorkspaceFile(
       return { ok: false, result: { ok: false, output: "Path is outside the workspace." } };
     }
 
+    if (options.approvedRealPath && !sameRealPath(candidateRealPath, options.approvedRealPath)) {
+      return { ok: false, result: { ok: false, output: "Approved file target changed before execution." } };
+    }
+
     const relativePath = toWorkspaceRelativePath(rootRealPath, candidateRealPath);
     const realPermission = classifyFileAction(rootRealPath, relativePath, action);
     if (realPermission.decision === "block" || (realPermission.decision === "confirm" && !options.skipPermissionCheck)) {
@@ -257,6 +262,14 @@ async function readSmallTextFile(filePath: string): Promise<string | undefined> 
 
 function toWorkspaceRelativePath(rootRealPath: string, filePath: string): string {
   return relative(rootRealPath, filePath).replace(/\\/g, "/");
+}
+
+function sameRealPath(left: string, right: string): boolean {
+  const normalizedLeft = normalize(left);
+  const normalizedRight = normalize(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
 }
 
 function hasNullByte(content: Buffer): boolean {

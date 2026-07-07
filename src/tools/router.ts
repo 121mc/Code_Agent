@@ -119,7 +119,8 @@ async function dispatchFileReadWithPermission(
   }
 
   return runReadFileTool(root, { path }, session, {
-    skipPermissionCheck: approval.skipPermissionCheck
+    skipPermissionCheck: approval.skipPermissionCheck,
+    approvedRealPath: target.realPath
   });
 }
 
@@ -163,7 +164,8 @@ async function dispatchEditFile(
   }
 
   return runEditFileTool(root, session, editArgs, {
-    skipPermissionCheck: approval.skipPermissionCheck
+    skipPermissionCheck: approval.skipPermissionCheck,
+    approvedRealPath: target.realPath
   });
 }
 
@@ -256,7 +258,7 @@ async function approveEditLimits(
   if (patchBytes > LARGE_PATCH_BYTES || changedLines > LARGE_PATCH_CHANGED_LINES) {
     const approved = await requestConfirmation(options, {
       kind: "limit",
-      message: `Large edit requires confirmation: ${patchBytes} bytes and ${changedLines} changed lines.`
+      message: formatLargeEditConfirmationMessage(args.path, canonicalPath, patchBytes, changedLines)
     });
     if (!approved.ok) {
       return approved;
@@ -271,6 +273,7 @@ type FilePermissionTarget =
       ok: true;
       requestedPath: string;
       canonicalPath: string;
+      realPath: string;
       permission: PermissionResult;
     }
   | { ok: false; result: ToolResult };
@@ -304,6 +307,7 @@ async function resolveFilePermissionTarget(
       ok: true,
       requestedPath,
       canonicalPath,
+      realPath: candidateRealPath,
       permission: chooseFilePermission(requestedPermission, canonicalPermission)
     };
   } catch (error) {
@@ -347,6 +351,23 @@ function formatFileConfirmationMessage(
 
 function formatCommandConfirmationMessage(command: string, reason: string): string {
   return `${reason} Command: ${command}`;
+}
+
+function formatLargeEditConfirmationMessage(
+  requestedPath: string,
+  canonicalPath: string | undefined,
+  patchBytes: number,
+  changedLines: number
+): string {
+  const parts = [
+    `Large edit requires confirmation for ${requestedPath}: ${patchBytes} bytes and ${changedLines} changed lines.`
+  ];
+
+  if (canonicalPath && normalizeWorkspacePath(requestedPath) !== canonicalPath) {
+    parts.push(`Resolved path: ${canonicalPath}.`);
+  }
+
+  return parts.join(" ");
 }
 
 async function requestConfirmation(

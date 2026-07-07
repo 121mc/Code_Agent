@@ -178,6 +178,32 @@ describe("confirmation paths and safety limits", () => {
     expect(session.filesRead).toEqual([".env"]);
   });
 
+  it("rejects reading a symlink whose target changes after approval", async () => {
+    const root = await tempRoot();
+    const linkPath = join(root, "link.txt");
+    await writeFile(join(root, ".env"), "SECRET=1\n");
+    await writeFile(join(root, ".env.local"), "LOCAL_SECRET=2\n");
+    await symlink(join(root, ".env"), linkPath, "file");
+    const session = createSession("read retargeted secret");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockImplementation(async () => {
+      await rm(linkPath, { force: true });
+      await symlink(join(root, ".env.local"), linkPath, "file");
+      return true;
+    });
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      { type: "tool_call", tool: "read_file", args: { path: "link.txt" } },
+      { confirm }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/target.*(changed|mismatch)|approved.*target/i);
+    expect(result.output).not.toContain("LOCAL_SECRET");
+    expect(session.filesRead).toEqual([]);
+  });
+
   it("denies reads through symlinks to sensitive targets without modifying session reads", async () => {
     const root = await tempRoot();
     await writeFile(join(root, ".env"), "SECRET=1\n");
@@ -254,6 +280,41 @@ describe("confirmation paths and safety limits", () => {
     expect(session.filesModified).toEqual([".env"]);
   });
 
+  it("rejects editing a symlink whose target changes after approval", async () => {
+    const root = await tempRoot();
+    const linkPath = join(root, "link.txt");
+    await writeFile(join(root, ".env"), "SECRET=1\n");
+    await writeFile(join(root, ".env.local"), "LOCAL_SECRET=2\n");
+    await symlink(join(root, ".env"), linkPath, "file");
+    const session = createSession("edit retargeted secret");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockImplementation(async () => {
+      await rm(linkPath, { force: true });
+      await symlink(join(root, ".env.local"), linkPath, "file");
+      return true;
+    });
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      {
+        type: "tool_call",
+        tool: "edit_file",
+        args: {
+          path: "link.txt",
+          search: "LOCAL_SECRET=2",
+          replace: "LOCAL_SECRET=3"
+        }
+      },
+      { confirm }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/target.*(changed|mismatch)|approved.*target/i);
+    expect(await readFile(join(root, ".env"), "utf8")).toBe("SECRET=1\n");
+    expect(await readFile(join(root, ".env.local"), "utf8")).toBe("LOCAL_SECRET=2\n");
+    expect(session.filesModified).toEqual([]);
+  });
+
   it("denies edits through symlinks to sensitive targets without modifying the target", async () => {
     const root = await tempRoot();
     await writeFile(join(root, ".env"), "SECRET=1\n");
@@ -284,6 +345,37 @@ describe("confirmation paths and safety limits", () => {
       message: expect.stringMatching(/edit[\s\S]*link\.txt[\s\S]*\.env/)
     });
     expect(session.filesModified).toEqual([]);
+  });
+
+  it("includes the edit target in large edit confirmation prompts", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "large.ts"), "const value = 1;\n");
+    const session = createSession("large edit");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(false);
+    const largeReplacement = `const value = 2;\n${"x".repeat(5_001)}`;
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      {
+        type: "tool_call",
+        tool: "edit_file",
+        args: {
+          path: "large.ts",
+          search: "const value = 1;",
+          replace: largeReplacement
+        }
+      },
+      { confirm }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/not approved/i);
+    expect(confirm).toHaveBeenCalledWith({
+      kind: "limit",
+      message: expect.stringMatching(/large edit[\s\S]*large\.ts/i)
+    });
+    expect(await readFile(join(root, "large.ts"), "utf8")).toBe("const value = 1;\n");
   });
 
   it("allows one automatic repair attempt after a failed test command and stops after the second failure", async () => {
