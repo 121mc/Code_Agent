@@ -3,37 +3,52 @@ import { buildRepairPrompt, parseAgentResponse } from "../src/protocol.js";
 
 describe("custom JSON protocol", () => {
   it("parses plan responses", () => {
-    const result = parseAgentResponse(JSON.stringify({
+    const response = {
       type: "plan",
       summary: "Update input validation",
       steps: ["Search", "Edit", "Test"]
-    }));
+    } as const;
+    const result = parseAgentResponse(JSON.stringify(response));
 
-    expect(result.ok).toBe(true);
-    expect(result.ok && result.response.type).toBe("plan");
+    expect(result).toEqual({ ok: true, response });
   });
 
   it("parses tool calls", () => {
-    const result = parseAgentResponse(JSON.stringify({
+    const response = {
       type: "tool_call",
       tool: "search",
       args: { query: "parseUser" }
-    }));
+    } as const;
+    const result = parseAgentResponse(JSON.stringify(response));
 
-    expect(result.ok).toBe(true);
-    expect(result.ok && result.response.type).toBe("tool_call");
+    expect(result).toEqual({ ok: true, response });
   });
 
   it("parses final responses", () => {
-    const result = parseAgentResponse(JSON.stringify({
+    const response = {
       type: "final",
       summary: "Updated parseUser",
       tests: "npm test passed",
       changedFiles: ["src/parseUser.ts"]
-    }));
+    } as const;
+    const result = parseAgentResponse(JSON.stringify(response));
 
-    expect(result.ok).toBe(true);
-    expect(result.ok && result.response.type).toBe("final");
+    expect(result).toEqual({ ok: true, response });
+  });
+
+  it("extracts a JSON object from surrounding model prose", () => {
+    const response = {
+      type: "plan",
+      summary: "Update input validation",
+      steps: ["Search", "Edit", "Test"]
+    } as const;
+    const result = parseAgentResponse([
+      "I will use this plan:",
+      JSON.stringify(response),
+      "Then I will continue."
+    ].join("\n"));
+
+    expect(result).toEqual({ ok: true, response });
   });
 
   it("rejects invalid JSON with a useful repair prompt", () => {
@@ -53,5 +68,56 @@ describe("custom JSON protocol", () => {
 
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error).toContain("Unsupported tool");
+  });
+
+  it("rejects plan responses with invalid steps", () => {
+    const result = parseAgentResponse(JSON.stringify({
+      type: "plan",
+      summary: "Update input validation",
+      steps: "Search"
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("string steps array");
+  });
+
+  it("rejects tool calls with invalid args", () => {
+    const result = parseAgentResponse(JSON.stringify({
+      type: "tool_call",
+      tool: "search",
+      args: null
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("object args");
+  });
+
+  it("rejects final responses with invalid changedFiles", () => {
+    const result = parseAgentResponse(JSON.stringify({
+      type: "final",
+      summary: "Updated parseUser",
+      tests: "npm test passed",
+      changedFiles: ["src/parseUser.ts", 42]
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("string changedFiles array");
+  });
+
+  it("rejects non-object top-level JSON", () => {
+    const result = parseAgentResponse(JSON.stringify(["plan"]));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("JSON object");
+  });
+
+  it("rejects unsupported response types", () => {
+    const result = parseAgentResponse(JSON.stringify({
+      type: "status",
+      summary: "Still working"
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("Response type");
   });
 });
