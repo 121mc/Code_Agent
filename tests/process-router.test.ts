@@ -101,6 +101,24 @@ describe("process tools", () => {
     expect(result.output).toContain("--- a/a.txt");
     expect(result.output).toMatch(/^[+-](first|second)$/m);
   });
+
+  it("omits large non-Git snapshot diffs with a clear summary", async () => {
+    const root = await tempRoot();
+    const session = createSession("large diff");
+    const before = Array.from({ length: 350 }, (_, index) => `before-${index}`).join("\n") + "\n";
+    const after = Array.from({ length: 350 }, (_, index) => `after-${index}`).join("\n") + "\n";
+    await writeFile(join(root, "large.txt"), after);
+    session.preEditSnapshots.set("large.txt", before);
+    session.filesModified.push("large.txt");
+
+    const result = await runDiffTool(root, session, false);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("large.txt");
+    expect(result.output).toContain("Large diff omitted");
+    expect(result.output).toContain("before 350 lines");
+    expect(result.output).toContain("after 350 lines");
+  });
 });
 
 describe("tool router", () => {

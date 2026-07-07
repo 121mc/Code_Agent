@@ -11,6 +11,7 @@ export type { ToolResult } from "./file-tools.js";
 const execAsync = promisify(exec);
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const DIFF_COMMAND_TIMEOUT_MS = 30_000;
+const MAX_LCS_DIFF_CELLS = 100_000;
 
 export interface RunCommandArgs {
   command: string;
@@ -115,8 +116,14 @@ export async function defaultCommandExecutor(
 export function renderSimpleDiff(file: string, before: string, after: string): string {
   const beforeLines = splitDiffLines(before);
   const afterLines = splitDiffLines(after);
-  const lcs = buildLcsTable(beforeLines, afterLines);
   const lines = [`--- a/${file}`, `+++ b/${file}`];
+
+  if (beforeLines.length * afterLines.length > MAX_LCS_DIFF_CELLS) {
+    lines.push(`Large diff omitted for ${file}: before ${beforeLines.length} lines, after ${afterLines.length} lines.`);
+    return lines.join("\n");
+  }
+
+  const lcs = buildLcsTable(beforeLines, afterLines);
   let beforeIndex = 0;
   let afterIndex = 0;
 
