@@ -85,17 +85,69 @@ export function classifyCommand(command: string): PermissionResult {
 
 function hasDestructiveCommand(command: string): boolean {
   const lower = command.toLowerCase();
-  return [
-    /\brm\s+-[a-z]*r[a-z]*f[a-z]*\b/,
-    /\brm\s+-[a-z]*f[a-z]*r[a-z]*\b/,
-    /\bgit\s+reset\s+--hard\b/,
-    /\bdel\s+\//,
-    /\brmdir\s+\/s\b/,
-    /\brd\s+\/s\b/,
-    /\bremove-item\b[\s\S]*\b-recurse\b/
-  ].some((pattern) => pattern.test(lower));
+  return (
+    hasDestructiveRmCommand(lower) ||
+    hasDestructiveRemoveItemCommand(lower) ||
+    [
+      /\bgit\s+reset\s+--hard\b/,
+      /\bdel\s+\//,
+      /\brmdir\s+\/s\b/,
+      /\brd\s+\/s\b/
+    ].some((pattern) => pattern.test(lower))
+  );
 }
 
 function hasShellControlSyntax(command: string): boolean {
   return /[\r\n;&|`<>]/.test(command) || command.includes("$(");
+}
+
+function hasDestructiveRmCommand(command: string): boolean {
+  const rmCommandPattern = /(^|[\s;&|(`$])rm\b/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = rmCommandPattern.exec(command)) !== null) {
+    const commandTail = getCommandTail(command, match.index + match[0].length);
+    if (hasRecursiveAndForceRmFlags(commandTail)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasRecursiveAndForceRmFlags(commandTail: string): boolean {
+  const tokens = commandTail.trim().split(/\s+/).filter(Boolean);
+  let hasRecursive = false;
+  let hasForce = false;
+
+  for (const token of tokens) {
+    if (/^--recursive(?:=.*)?$/.test(token)) {
+      hasRecursive = true;
+    } else if (/^--force(?:=.*)?$/.test(token)) {
+      hasForce = true;
+    } else if (/^-[a-z]+$/.test(token)) {
+      hasRecursive = hasRecursive || token.includes("r");
+      hasForce = hasForce || token.includes("f");
+    }
+  }
+
+  return hasRecursive && hasForce;
+}
+
+function hasDestructiveRemoveItemCommand(command: string): boolean {
+  const removeItemPattern = /(^|[\s;&|(`$])remove-item\b/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = removeItemPattern.exec(command)) !== null) {
+    const commandTail = getCommandTail(command, match.index + match[0].length);
+    if (/(^|\s)-(r|recurse|recursive)(?=$|\s|:)/.test(commandTail)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getCommandTail(command: string, startIndex: number): string {
+  return command.slice(startIndex).split(/[\r\n;&|`<>)]/, 1)[0] ?? "";
 }

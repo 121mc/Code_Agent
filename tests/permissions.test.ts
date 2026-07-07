@@ -72,17 +72,28 @@ describe("command permission classification", () => {
     expect(classifyCommand("curl https://example.com").decision).toBe("confirm");
   });
 
-  it("blocks destructive shell commands", () => {
-    expect(classifyCommand("rm -rf /").decision).toBe("block");
-    expect(classifyCommand("rm -fr /").decision).toBe("block");
-    expect(classifyCommand("git reset --hard").decision).toBe("block");
+  it.each([
+    "rm -rf /",
+    "rm -fr /",
+    "rm -r -f /",
+    "rm -f -r /",
+    "rm --recursive --force /",
+    "git reset --hard",
+    "Remove-Item -Recurse C:\\temp",
+    "Remove-Item C:\\temp -Recurse -Force",
+    "Remove-Item -r -Force C:\\temp"
+  ])("blocks destructive shell command: %s", (command) => {
+    expect(classifyCommand(command).decision).toBe("block");
   });
 
-  it("blocks destructive commands embedded after low-risk commands", () => {
-    expect(classifyCommand("npm test $(rm -rf dist)").decision).toBe("block");
-    expect(classifyCommand("npm test\nrm -rf dist").decision).toBe("block");
-    expect(classifyCommand("npm test && rm -rf /").decision).toBe("block");
-    expect(classifyCommand("npm test; git reset --hard").decision).toBe("block");
+  it.each([
+    "npm test $(rm -rf dist)",
+    "npm test $(rm -r -f /)",
+    "npm test\nrm -rf dist",
+    "npm test && rm -rf /",
+    "npm test; git reset --hard"
+  ])("blocks destructive command embedded after low-risk command: %s", (command) => {
+    expect(classifyCommand(command).decision).toBe("block");
   });
 
   it("requires confirmation for non-destructive shell chaining and substitution", () => {
