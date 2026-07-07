@@ -1,1 +1,7 @@
 .worktrees
+node_modules/
+dist/
+coverage/
+.code-agent/config.json
+.env
+.env.*
