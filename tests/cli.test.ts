@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,9 @@ async function tempRoot(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  );
 });
 
 describe("slash commands", () => {
@@ -98,6 +101,27 @@ describe("slash commands", () => {
     );
   });
 
+  it("contains diff command failures and continues", async () => {
+    const root = await tempRoot();
+    const output: string[] = [];
+    await writeFile(join(root, "package.json"), "{ bad json");
+
+    const result = await handleSlashCommand("/diff", { root, write: (line) => output.push(line) });
+
+    expect(result).toBe("continue");
+    expect(output.join("\n")).toContain("Command failed:");
+  });
+
+  it("exits cleanly when piped input closes after a contained slash command failure", async () => {
+    const root = await tempRoot();
+
+    const result = await runCliProcess(root, "/config\n");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Missing CODE_AGENT");
+    expect(result.stderr).not.toContain("code-agent failed");
+  });
+
   it("continues after unknown commands", async () => {
     const root = await tempRoot();
     const output: string[] = [];
@@ -131,4 +155,41 @@ async function withClearedConfigEnv<T>(fn: () => Promise<T>): Promise<T> {
       }
     }
   }
+}
+
+async function runCliProcess(root: string, stdin: string): Promise<{
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+}> {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
+  for (const key of configEnvKeys) {
+    delete env[key];
+  }
+
+  const child = spawn(process.execPath, [
+    join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+    join(process.cwd(), "src", "index.ts")
+  ], {
+    cwd: root,
+    env,
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+  child.stdin.end(stdin);
+
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (exitCode) => {
+      resolve({
+        exitCode,
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: Buffer.concat(stderrChunks).toString("utf8")
+      });
+    });
+  });
 }

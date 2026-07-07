@@ -46,6 +46,15 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
 }
 
 export async function handleSlashCommand(command: string, io: CliIO): Promise<SlashCommandResult> {
+  try {
+    return await runSlashCommand(command, io);
+  } catch (error) {
+    io.write(`Command failed: ${error instanceof Error ? error.message : String(error)}`);
+    return "continue";
+  }
+}
+
+async function runSlashCommand(command: string, io: CliIO): Promise<SlashCommandResult> {
   const trimmed = command.trim();
 
   if (trimmed === "/help") {
@@ -120,7 +129,16 @@ async function runRepl(root: string, injectedLlm?: LLMClient): Promise<void> {
 
   try {
     while (true) {
-      const line = await rl.question("> ");
+      let line: string;
+      try {
+        line = await rl.question("> ");
+      } catch (error) {
+        if (isReadlineClosedError(error)) {
+          break;
+        }
+        throw error;
+      }
+
       const trimmed = line.trim();
 
       if (!trimmed) {
@@ -140,4 +158,8 @@ async function runRepl(root: string, injectedLlm?: LLMClient): Promise<void> {
   } finally {
     rl.close();
   }
+}
+
+function isReadlineClosedError(error: unknown): boolean {
+  return error instanceof Error && error.message === "readline was closed";
 }
