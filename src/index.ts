@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { pathToFileURL } from "node:url";
+import { runCli } from "./cli.js";
 
 export function buildHelpText(): string {
   return [
@@ -21,12 +22,7 @@ export function buildHelpText(): string {
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
-  if (argv.includes("--help") || argv.includes("-h")) {
-    console.log(buildHelpText());
-    return;
-  }
-
-  console.log("code-agent MVP scaffold. Run `code-agent --help` for commands.");
+  await runCli({ argv });
 }
 
 const entryUrl = pathToFileURL(process.argv[1] ?? "").href;
