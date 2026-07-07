@@ -72,30 +72,45 @@ export async function runDiffTool(
         timeout: DIFF_COMMAND_TIMEOUT_MS,
         windowsHide: true
       });
-      return { ok: true, output: stdout || stderr || "No diff." };
+      if (stdout || stderr) {
+        return { ok: true, output: stdout || stderr };
+      }
+
+      const snapshotDiff = await runSnapshotDiff(root, session);
+      return snapshotDiff.hasSnapshots ? snapshotDiff.result : { ok: true, output: "No diff." };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, output: `git diff failed: ${message}` };
+      const snapshotDiff = await runSnapshotDiff(root, session);
+      return snapshotDiff.hasSnapshots ? snapshotDiff.result : { ok: false, output: `git diff failed: ${message}` };
     }
   }
 
+  return (await runSnapshotDiff(root, session)).result;
+}
+
+async function runSnapshotDiff(
+  root: string,
+  session: SessionState
+): Promise<{ hasSnapshots: boolean; result: ToolResult }> {
   const chunks: string[] = [];
+  let hasSnapshots = false;
   for (const file of session.filesModified) {
     const before = session.preEditSnapshots.get(file);
     if (before === undefined) {
       continue;
     }
 
+    hasSnapshots = true;
     try {
       const after = await readFile(join(root, file), "utf8");
       chunks.push(renderSimpleDiff(file, before, after));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, output: `Diff failed for ${file}: ${message}` };
+      return { hasSnapshots, result: { ok: false, output: `Diff failed for ${file}: ${message}` } };
     }
   }
 
-  return { ok: true, output: chunks.length > 0 ? chunks.join("\n") : "No diff." };
+  return { hasSnapshots, result: { ok: true, output: chunks.length > 0 ? chunks.join("\n") : "No diff." } };
 }
 
 export async function defaultCommandExecutor(

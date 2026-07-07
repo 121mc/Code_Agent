@@ -59,10 +59,13 @@ export function recordReadFile(session: SessionState, path: string): void {
   }
 }
 
-export function recordModifiedFile(session: SessionState, path: string, snapshot: string): void {
+export function recordPreEditSnapshot(session: SessionState, path: string, snapshot: string): void {
   if (!session.preEditSnapshots.has(path)) {
     session.preEditSnapshots.set(path, snapshot);
   }
+}
+
+export function recordModifiedFile(session: SessionState, path: string): void {
   if (!session.filesModified.includes(path)) {
     session.filesModified.push(path);
   }
