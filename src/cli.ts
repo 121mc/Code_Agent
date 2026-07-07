@@ -2,7 +2,7 @@ import { stdout as output, stdin as input } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { runAgentTask } from "./agent.js";
 import { loadModelConfig, maskConfigForDisplay } from "./config.js";
-import { buildHelpText } from "./index.js";
+import { buildHelpText } from "./help.js";
 import { OpenAICompatibleClient, type LLMClient } from "./llm.js";
 import { createInitialClaudeMd, loadProjectContext } from "./project-context.js";
 import { createSession } from "./session.js";
@@ -61,6 +61,11 @@ export async function handleSlashCommand(command: string, io: CliIO): Promise<Sl
 
   if (trimmed === "/diff") {
     const context = await loadProjectContext(io.root);
+    if (!context.isGitRepository) {
+      io.write("Diff is only available for Git workspaces or files modified during the current task.");
+      return "continue";
+    }
+
     const session = createSession("manual diff");
     const result = await runDiffTool(io.root, session, context.isGitRepository);
     io.write(result.output);
@@ -73,8 +78,12 @@ export async function handleSlashCommand(command: string, io: CliIO): Promise<Sl
   }
 
   if (trimmed === "/config") {
-    const config = await loadModelConfig(io.root);
-    io.write(JSON.stringify(maskConfigForDisplay(config), null, 2));
+    try {
+      const config = await loadModelConfig(io.root);
+      io.write(JSON.stringify(maskConfigForDisplay(config), null, 2));
+    } catch (error) {
+      io.write(error instanceof Error ? error.message : String(error));
+    }
     return "continue";
   }
 
