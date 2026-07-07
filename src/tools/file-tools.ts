@@ -24,6 +24,7 @@ export interface EditFileArgs {
 
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage"]);
 const MAX_READ_BYTES = 256_000;
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 interface WorkspaceFile {
   path: string;
@@ -225,7 +226,12 @@ async function readWorkspaceTextFile(
     return { ok: false, result: { ok: false, output: `File appears to be binary: ${file.relativePath}` } };
   }
 
-  return { ok: true, text: content.toString("utf8") };
+  const text = decodeUtf8(content);
+  if (text === undefined) {
+    return { ok: false, result: { ok: false, output: `File is not valid UTF-8 text: ${file.relativePath}` } };
+  }
+
+  return { ok: true, text };
 }
 
 async function readSmallTextFile(filePath: string): Promise<string | undefined> {
@@ -236,7 +242,7 @@ async function readSmallTextFile(filePath: string): Promise<string | undefined> 
     }
 
     const content = await readFile(filePath);
-    return hasNullByte(content) ? undefined : content.toString("utf8");
+    return hasNullByte(content) ? undefined : decodeUtf8(content);
   } catch {
     return undefined;
   }
@@ -248,6 +254,14 @@ function toWorkspaceRelativePath(rootRealPath: string, filePath: string): string
 
 function hasNullByte(content: Buffer): boolean {
   return content.includes(0);
+}
+
+function decodeUtf8(content: Buffer): string | undefined {
+  try {
+    return UTF8_DECODER.decode(content);
+  } catch {
+    return undefined;
+  }
 }
 
 function formatError(prefix: string, error: unknown): string {

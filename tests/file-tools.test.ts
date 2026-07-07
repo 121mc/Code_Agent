@@ -7,6 +7,7 @@ import { runEditFileTool, runReadFileTool, runSearchTool } from "../src/tools/fi
 
 const tempRoots: string[] = [];
 const MAX_READ_BYTES = 256_000;
+const INVALID_UTF8_BYTES = Buffer.from([0xff, 0xfe, 0x41, 0x42, 0x43, 0xfd]);
 
 async function tempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "code-agent-tools-"));
@@ -100,6 +101,26 @@ describe("file tools", () => {
     expect(result.output).toContain("binary");
   });
 
+  it("rejects invalid UTF-8 files when reading", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "invalid.dat"), INVALID_UTF8_BYTES);
+
+    const result = await runReadFileTool(root, { path: "invalid.dat" });
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/binary|utf-?8|text/i);
+  });
+
+  it("skips invalid UTF-8 files during search", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "invalid.dat"), INVALID_UTF8_BYTES);
+
+    const result = await runSearchTool(root, { query: "\uFFFD" });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).not.toContain("invalid.dat");
+  });
+
   it("applies exact small edits and records snapshots", async () => {
     const root = await tempRoot();
     await writeFile(join(root, "parser.ts"), "export const value = 1;\n");
@@ -169,6 +190,24 @@ describe("file tools", () => {
     expect(result.ok).toBe(false);
     expect(result.output).toContain("binary");
     expect(session.filesModified).toEqual([]);
+  });
+
+  it("rejects invalid UTF-8 files before editing without corrupting bytes", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "invalid.dat"), INVALID_UTF8_BYTES);
+    const session = createSession("change invalid file");
+
+    const result = await runEditFileTool(root, session, {
+      path: "invalid.dat",
+      search: "ABC",
+      replace: "XYZ"
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/binary|utf-?8|text/i);
+    expect(await readFile(join(root, "invalid.dat"))).toEqual(INVALID_UTF8_BYTES);
+    expect(session.filesModified).toEqual([]);
+    expect(session.preEditSnapshots.size).toBe(0);
   });
 
   it("records the pre-edit snapshot before reporting write failures", async () => {
