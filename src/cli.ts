@@ -7,6 +7,7 @@ import { OpenAICompatibleClient, type LLMClient } from "./llm.js";
 import { createInitialClaudeMd, loadProjectContext } from "./project-context.js";
 import { createSession } from "./session.js";
 import { runDiffTool } from "./tools/process-tools.js";
+import type { ConfirmationPrompt } from "./tools/router.js";
 
 export type SlashCommandResult = "continue" | "exit";
 
@@ -38,7 +39,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
   }
 
   if (argv.length > 0) {
-    await runOneShot(argv.join(" "), root, options.llm);
+    await runOneShot(argv.join(" "), root, options.llm, confirmInTerminal);
     return;
   }
 
@@ -104,15 +105,22 @@ async function runSlashCommand(command: string, io: CliIO): Promise<SlashCommand
   return "continue";
 }
 
-async function runOneShot(userRequest: string, root: string, injectedLlm?: LLMClient): Promise<void> {
+async function runOneShot(
+  userRequest: string,
+  root: string,
+  injectedLlm?: LLMClient,
+  confirm?: (prompt: ConfirmationPrompt) => Promise<boolean>
+): Promise<void> {
   const context = await loadProjectContext(root);
   const llm = injectedLlm ?? new OpenAICompatibleClient(await loadModelConfig(root));
   const result = await runAgentTask({
     userRequest,
     context,
     llm,
+    routerOptions: { confirm },
     onPlan: (plan) => console.log(formatPlan(plan.summary, plan.steps))
   });
+  const diff = await runDiffTool(root, result.session, context.isGitRepository);
 
   console.log("Done.");
   console.log(result.final.summary);
@@ -121,6 +129,8 @@ async function runOneShot(userRequest: string, root: string, injectedLlm?: LLMCl
   for (const file of result.final.changedFiles) {
     console.log(`- ${file}`);
   }
+  console.log("Diff:");
+  console.log(diff.output);
 }
 
 async function runRepl(root: string, injectedLlm?: LLMClient): Promise<void> {
@@ -153,11 +163,28 @@ async function runRepl(root: string, injectedLlm?: LLMClient): Promise<void> {
         continue;
       }
 
-      await runOneShot(trimmed, root, injectedLlm);
+      await runOneShot(trimmed, root, injectedLlm, (prompt) => confirmWithReadline(rl, prompt));
     }
   } finally {
     rl.close();
   }
+}
+
+async function confirmInTerminal(prompt: ConfirmationPrompt): Promise<boolean> {
+  const rl = createInterface({ input, output });
+  try {
+    return await confirmWithReadline(rl, prompt);
+  } finally {
+    rl.close();
+  }
+}
+
+async function confirmWithReadline(
+  rl: ReturnType<typeof createInterface>,
+  prompt: ConfirmationPrompt
+): Promise<boolean> {
+  const answer = await rl.question(`${prompt.message} [y/N] `);
+  return /^(y|yes)$/i.test(answer.trim());
 }
 
 function isReadlineClosedError(error: unknown): boolean {

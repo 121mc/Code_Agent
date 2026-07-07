@@ -26,19 +26,32 @@ export interface CommandExecutorResult {
 
 export type CommandExecutor = (root: string, args: Required<RunCommandArgs>) => Promise<CommandExecutorResult>;
 
+export interface RunCommandToolOptions {
+  executor?: CommandExecutor;
+  skipPermissionCheck?: boolean;
+}
+
 export async function runCommandTool(
   root: string,
+  session: SessionState,
   args: RunCommandArgs,
-  executor: CommandExecutor = defaultCommandExecutor
+  options: RunCommandToolOptions = {}
 ): Promise<ToolResult> {
   const permission = classifyCommand(args.command);
-  if (permission.decision !== "allow") {
+  if (permission.decision === "block" || (permission.decision === "confirm" && !options.skipPermissionCheck)) {
     return { ok: false, output: permission.reason };
   }
 
+  const executor = options.executor ?? defaultCommandExecutor;
   const result = await executor(root, {
     command: args.command,
     timeoutMs: args.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
+  });
+  session.commandResults.push({
+    command: args.command,
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    output: result.output
   });
 
   return {

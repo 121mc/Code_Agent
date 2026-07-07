@@ -21,27 +21,38 @@ afterEach(async () => {
 describe("process tools", () => {
   it("runs allowed commands through the injected executor and returns output", async () => {
     const root = await tempRoot();
+    const session = createSession("run tests");
     const executor = vi.fn<CommandExecutor>().mockResolvedValue({
       exitCode: 0,
       timedOut: false,
       output: "test output"
     });
 
-    const result = await runCommandTool(root, { command: "npm test" }, executor);
+    const result = await runCommandTool(root, session, { command: "npm test" }, { executor });
 
     expect(result).toEqual({ ok: true, output: "test output" });
     expect(executor).toHaveBeenCalledWith(root, { command: "npm test", timeoutMs: 120_000 });
+    expect(session.commandResults).toEqual([
+      {
+        command: "npm test",
+        exitCode: 0,
+        timedOut: false,
+        output: "test output"
+      }
+    ]);
   });
 
   it("blocks git reset --hard without invoking the executor", async () => {
     const root = await tempRoot();
+    const session = createSession("blocked command");
     const executor = vi.fn<CommandExecutor>();
 
-    const result = await runCommandTool(root, { command: "git reset --hard" }, executor);
+    const result = await runCommandTool(root, session, { command: "git reset --hard" }, { executor });
 
     expect(result.ok).toBe(false);
     expect(result.output).toContain("Destructive command");
     expect(executor).not.toHaveBeenCalled();
+    expect(session.commandResults).toEqual([]);
   });
 
   it("creates snapshot diffs for non-Git workspaces", async () => {

@@ -1,5 +1,5 @@
 import { readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { basename, join, normalize, relative } from "node:path";
 import { classifyFileAction, isPathInsideRoot, resolveWorkspacePath } from "../permissions.js";
 import { recordModifiedFile, recordReadFile, type SessionState } from "../session.js";
 
@@ -20,6 +20,11 @@ export interface EditFileArgs {
   path: string;
   search: string;
   replace: string;
+}
+
+export interface FileToolOptions {
+  skipPermissionCheck?: boolean;
+  approvedRealPath?: string;
 }
 
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage"]);
@@ -65,9 +70,10 @@ export async function runSearchTool(root: string, args: SearchArgs): Promise<Too
 export async function runReadFileTool(
   root: string,
   args: ReadFileArgs,
-  session?: SessionState
+  session?: SessionState,
+  options: FileToolOptions = {}
 ): Promise<ToolResult> {
-  const workspaceFile = await resolveWorkspaceFile(root, args.path, "read");
+  const workspaceFile = await resolveWorkspaceFile(root, args.path, "read", options);
   if (!workspaceFile.ok) {
     return workspaceFile.result;
   }
@@ -84,13 +90,14 @@ export async function runReadFileTool(
 export async function runEditFileTool(
   root: string,
   session: SessionState,
-  args: EditFileArgs
+  args: EditFileArgs,
+  options: FileToolOptions = {}
 ): Promise<ToolResult> {
   if (!args.search) {
     return { ok: false, output: "Edit search text must not be empty." };
   }
 
-  const workspaceFile = await resolveWorkspaceFile(root, args.path, "edit");
+  const workspaceFile = await resolveWorkspaceFile(root, args.path, "edit", options);
   if (!workspaceFile.ok) {
     return workspaceFile.result;
   }
@@ -141,10 +148,11 @@ async function* walkTextFiles(rootRealPath: string, directory: string): AsyncGen
 async function resolveWorkspaceFile(
   root: string,
   requestedPath: string,
-  action: "read" | "edit"
+  action: "read" | "edit",
+  options: FileToolOptions
 ): Promise<{ ok: true; file: WorkspaceFile } | { ok: false; result: ToolResult }> {
   const permission = classifyFileAction(root, requestedPath, action);
-  if (permission.decision !== "allow") {
+  if (permission.decision === "block" || (permission.decision === "confirm" && !options.skipPermissionCheck)) {
     return { ok: false, result: { ok: false, output: permission.reason } };
   }
 
@@ -157,9 +165,13 @@ async function resolveWorkspaceFile(
       return { ok: false, result: { ok: false, output: "Path is outside the workspace." } };
     }
 
+    if (options.approvedRealPath && !sameRealPath(candidateRealPath, options.approvedRealPath)) {
+      return { ok: false, result: { ok: false, output: "Approved file target changed before execution." } };
+    }
+
     const relativePath = toWorkspaceRelativePath(rootRealPath, candidateRealPath);
     const realPermission = classifyFileAction(rootRealPath, relativePath, action);
-    if (realPermission.decision !== "allow") {
+    if (realPermission.decision === "block" || (realPermission.decision === "confirm" && !options.skipPermissionCheck)) {
       return { ok: false, result: { ok: false, output: realPermission.reason } };
     }
 
@@ -250,6 +262,14 @@ async function readSmallTextFile(filePath: string): Promise<string | undefined> 
 
 function toWorkspaceRelativePath(rootRealPath: string, filePath: string): string {
   return relative(rootRealPath, filePath).replace(/\\/g, "/");
+}
+
+function sameRealPath(left: string, right: string): boolean {
+  const normalizedLeft = normalize(left);
+  const normalizedRight = normalize(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
 }
 
 function hasNullByte(content: Buffer): boolean {
