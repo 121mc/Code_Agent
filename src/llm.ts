@@ -11,6 +11,8 @@ export interface LLMClient {
 
 export type FetchLike = typeof fetch;
 
+const PROVIDER_ERROR_BODY_LIMIT = 1000;
+
 export class OpenAICompatibleClient implements LLMClient {
   constructor(
     private readonly config: ModelConfig,
@@ -32,12 +34,12 @@ export class OpenAICompatibleClient implements LLMClient {
     });
 
     if (!response.ok) {
-      throw new Error(`LLM request failed with HTTP ${response.status}.`);
+      const providerError = await readProviderErrorText(response);
+      const detail = providerError ? `: ${providerError}` : "";
+      throw new Error(`LLM request failed with HTTP ${response.status}${detail}.`);
     }
 
-    const json = await response.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
+    const json = await parseJsonResponse(response);
     const content = json.choices?.[0]?.message?.content;
 
     if (typeof content !== "string") {
@@ -77,4 +79,32 @@ export function buildSystemPrompt(projectMemory: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+async function readProviderErrorText(response: Response): Promise<string> {
+  try {
+    return capProviderErrorText((await response.text()).trim());
+  } catch {
+    return "";
+  }
+}
+
+function capProviderErrorText(value: string): string {
+  if (value.length <= PROVIDER_ERROR_BODY_LIMIT) {
+    return value;
+  }
+
+  return `${value.slice(0, PROVIDER_ERROR_BODY_LIMIT)}...`;
+}
+
+async function parseJsonResponse(response: Response): Promise<{
+  choices?: Array<{ message?: { content?: string } }>;
+}> {
+  try {
+    return await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+  } catch {
+    throw new Error("LLM response was not valid JSON.");
+  }
 }

@@ -15,10 +15,10 @@ describe("LLM client", () => {
   });
 
   it("calls OpenAI-compatible chat completions", async () => {
-    const requests: unknown[] = [];
+    const requests: Array<{ input: Parameters<typeof fetch>[0]; init: Parameters<typeof fetch>[1] }> = [];
     const client = new OpenAICompatibleClient(
       {
-        baseURL: "https://llm.example/v1",
+        baseURL: "https://llm.example/v1/",
         apiKey: "secret",
         model: "test-model"
       },
@@ -34,5 +34,70 @@ describe("LLM client", () => {
 
     expect(response).toContain("\"type\":\"final\"");
     expect(requests).toHaveLength(1);
+    expect(requests[0]?.input).toBe("https://llm.example/v1/chat/completions");
+    expect(requests[0]?.init?.method).toBe("POST");
+    expect(requests[0]?.init?.headers).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer secret"
+    });
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({
+      model: "test-model",
+      messages: [{ role: "user", content: "hello" }],
+      temperature: 0.2
+    });
+  });
+
+  it("includes provider error response text in non-OK errors", async () => {
+    const client = new OpenAICompatibleClient(
+      {
+        baseURL: "https://llm.example/v1",
+        apiKey: "secret",
+        model: "test-model"
+      },
+      async () => new Response("rate limited by provider", { status: 429 })
+    );
+
+    let thrown: unknown;
+    try {
+      await client.complete([{ role: "user", content: "hello" }]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain("LLM request failed with HTTP 429");
+    expect((thrown as Error).message).toContain("rate limited by provider");
+  });
+
+  it("throws a clear error when message content is missing", async () => {
+    const client = new OpenAICompatibleClient(
+      {
+        baseURL: "https://llm.example/v1",
+        apiKey: "secret",
+        model: "test-model"
+      },
+      async () => new Response(JSON.stringify({
+        choices: [{ message: {} }]
+      }), { status: 200 })
+    );
+
+    await expect(client.complete([{ role: "user", content: "hello" }]))
+      .rejects
+      .toThrow("LLM response did not include message content.");
+  });
+
+  it("throws a clear client error for malformed JSON responses", async () => {
+    const client = new OpenAICompatibleClient(
+      {
+        baseURL: "https://llm.example/v1",
+        apiKey: "secret",
+        model: "test-model"
+      },
+      async () => new Response("not json", { status: 200 })
+    );
+
+    await expect(client.complete([{ role: "user", content: "hello" }]))
+      .rejects
+      .toThrow("LLM response was not valid JSON.");
   });
 });
