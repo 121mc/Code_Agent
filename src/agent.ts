@@ -2,7 +2,7 @@ import { buildRepairPrompt, parseAgentResponse, type FinalResponse, type PlanRes
 import { buildSystemPrompt, type ChatMessage, type LLMClient } from "./llm.js";
 import type { ProjectContext } from "./project-context.js";
 import { createSession, type SessionState } from "./session.js";
-import { dispatchToolCall } from "./tools/router.js";
+import { dispatchToolCall, type RouterOptions } from "./tools/router.js";
 
 export interface RunAgentTaskInput {
   userRequest: string;
@@ -10,6 +10,7 @@ export interface RunAgentTaskInput {
   llm: LLMClient;
   maxToolCalls?: number;
   maxLlmTurns?: number;
+  routerOptions?: RouterOptions;
   onPlan?: (plan: PlanResponse) => void;
 }
 
@@ -95,9 +96,9 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
       input.context.root,
       session,
       parsed.response,
-      { isGitRepository: input.context.isGitRepository }
+      { ...input.routerOptions, isGitRepository: input.context.isGitRepository }
     );
-    recordCommandResultIfNeeded(session, parsed.response, observation);
+    const testFailureAction = handleFailedTestCommand(session, parsed.response, observation);
 
     messages.push({ role: "assistant", content: JSON.stringify(parsed.response) });
     messages.push({
@@ -106,9 +107,23 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
         type: "observation",
         tool: parsed.response.tool,
         ok: observation.ok,
-        output: observation.output
+        output: testFailureAction.guidance
+          ? appendRepairGuidance(observation.output)
+          : observation.output
       })
     });
+
+    if (testFailureAction.stop) {
+      return {
+        final: {
+          type: "final",
+          summary: "Stopped after a second failed test command.",
+          tests: summarizeTests(session),
+          changedFiles: [...session.filesModified]
+        },
+        session
+      };
+    }
   }
 
   return {
@@ -130,30 +145,50 @@ function reconcileFinalResponse(final: FinalResponse, session: SessionState): Fi
   };
 }
 
-function recordCommandResultIfNeeded(
+function handleFailedTestCommand(
   session: SessionState,
   response: { tool: string; args: Record<string, unknown> },
   observation: { ok: boolean; output: string }
-): void {
-  if (response.tool !== "run_command" || typeof response.args.command !== "string") {
-    return;
+): { guidance: boolean; stop: boolean } {
+  if (
+    observation.ok ||
+    response.tool !== "run_command" ||
+    typeof response.args.command !== "string" ||
+    !isTestCommand(response.args.command)
+  ) {
+    return { guidance: false, stop: false };
   }
 
-  session.commandResults.push({
-    command: response.args.command,
-    exitCode: observation.ok ? 0 : null,
-    timedOut: false,
-    output: observation.output
-  });
+  if (session.automaticRepairAttempts === 0) {
+    session.automaticRepairAttempts += 1;
+    return { guidance: true, stop: false };
+  }
+
+  return { guidance: false, stop: true };
+}
+
+function appendRepairGuidance(output: string): string {
+  return [
+    output,
+    "One automatic repair attempt is allowed. Diagnose and emit the next tool call."
+  ].join("\n");
 }
 
 function summarizeTests(session: SessionState): string {
   for (let index = session.commandResults.length - 1; index >= 0; index -= 1) {
     const commandResult = session.commandResults[index];
-    if (commandResult && /\b(test|build|lint)\b/.test(commandResult.command)) {
+    if (commandResult && isCheckCommand(commandResult.command)) {
       return `${commandResult.command} exited ${commandResult.exitCode ?? "unknown"}`;
     }
   }
 
   return "not run";
+}
+
+function isTestCommand(command: string): boolean {
+  return /\btest\b/.test(command);
+}
+
+function isCheckCommand(command: string): boolean {
+  return /\b(test|build|lint)\b/.test(command);
 }
