@@ -140,7 +140,7 @@ function hasDestructiveRemoveItemCommand(command: string): boolean {
 
   while ((match = removeItemPattern.exec(command)) !== null) {
     const commandTail = getCommandTail(command, match.index + match[0].length);
-    if (/(^|\s)-(r|recurse|recursive)(?=$|\s|:)/.test(commandTail)) {
+    if (/(^|\s)-(r|re|rec|recu|recur|recurs|recurse|recursive)(?=$|\s|:)/.test(commandTail)) {
       return true;
     }
   }

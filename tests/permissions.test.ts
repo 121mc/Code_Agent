@@ -81,7 +81,10 @@ describe("command permission classification", () => {
     "git reset --hard",
     "Remove-Item -Recurse C:\\temp",
     "Remove-Item C:\\temp -Recurse -Force",
-    "Remove-Item -r -Force C:\\temp"
+    "Remove-Item -r -Force C:\\temp",
+    "Remove-Item -rec C:/temp",
+    "Remove-Item -recu C:/temp",
+    "Remove-Item C:/temp -re"
   ])("blocks destructive shell command: %s", (command) => {
     expect(classifyCommand(command).decision).toBe("block");
   });
@@ -91,7 +94,8 @@ describe("command permission classification", () => {
     "npm test $(rm -r -f /)",
     "npm test\nrm -rf dist",
     "npm test && rm -rf /",
-    "npm test; git reset --hard"
+    "npm test; git reset --hard",
+    "npm test $(Remove-Item -rec C:/temp)"
   ])("blocks destructive command embedded after low-risk command: %s", (command) => {
     expect(classifyCommand(command).decision).toBe("block");
   });
