@@ -59,6 +59,48 @@ describe("process tools", () => {
     expect(result.output).toContain("-before");
     expect(result.output).toContain("+after");
   });
+
+  it("shows removed duplicate lines in non-Git snapshot diffs", async () => {
+    const root = await tempRoot();
+    const session = createSession("remove duplicate line");
+    await writeFile(join(root, "a.txt"), "same\n");
+    session.preEditSnapshots.set("a.txt", "same\nsame\n");
+    session.filesModified.push("a.txt");
+
+    const result = await runDiffTool(root, session, false);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("--- a/a.txt");
+    expect(result.output).toContain("-same");
+  });
+
+  it("shows added duplicate lines in non-Git snapshot diffs", async () => {
+    const root = await tempRoot();
+    const session = createSession("add duplicate line");
+    await writeFile(join(root, "a.txt"), "same\nsame\n");
+    session.preEditSnapshots.set("a.txt", "same\n");
+    session.filesModified.push("a.txt");
+
+    const result = await runDiffTool(root, session, false);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("--- a/a.txt");
+    expect(result.output).toContain("+same");
+  });
+
+  it("shows reordered lines in non-Git snapshot diffs", async () => {
+    const root = await tempRoot();
+    const session = createSession("reorder lines");
+    await writeFile(join(root, "a.txt"), "second\nfirst\n");
+    session.preEditSnapshots.set("a.txt", "first\nsecond\n");
+    session.filesModified.push("a.txt");
+
+    const result = await runDiffTool(root, session, false);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("--- a/a.txt");
+    expect(result.output).toMatch(/^[+-](first|second)$/m);
+  });
 });
 
 describe("tool router", () => {

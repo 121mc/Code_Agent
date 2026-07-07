@@ -113,23 +113,55 @@ export async function defaultCommandExecutor(
 }
 
 export function renderSimpleDiff(file: string, before: string, after: string): string {
-  const beforeLines = before.split(/\r?\n/);
-  const afterLines = after.split(/\r?\n/);
+  const beforeLines = splitDiffLines(before);
+  const afterLines = splitDiffLines(after);
+  const lcs = buildLcsTable(beforeLines, afterLines);
   const lines = [`--- a/${file}`, `+++ b/${file}`];
+  let beforeIndex = 0;
+  let afterIndex = 0;
 
-  for (const line of beforeLines) {
-    if (line !== "" && !afterLines.includes(line)) {
-      lines.push(`-${line}`);
-    }
-  }
-
-  for (const line of afterLines) {
-    if (line !== "" && !beforeLines.includes(line)) {
-      lines.push(`+${line}`);
+  while (beforeIndex < beforeLines.length || afterIndex < afterLines.length) {
+    if (beforeLines[beforeIndex] === afterLines[afterIndex]) {
+      beforeIndex += 1;
+      afterIndex += 1;
+    } else if (
+      afterIndex < afterLines.length &&
+      (beforeIndex === beforeLines.length || lcs[beforeIndex][afterIndex + 1] >= lcs[beforeIndex + 1][afterIndex])
+    ) {
+      lines.push(`+${afterLines[afterIndex]}`);
+      afterIndex += 1;
+    } else if (beforeIndex < beforeLines.length) {
+      lines.push(`-${beforeLines[beforeIndex]}`);
+      beforeIndex += 1;
     }
   }
 
   return lines.join("\n");
+}
+
+function splitDiffLines(content: string): string[] {
+  const lines = content.split(/\r?\n/);
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+function buildLcsTable(beforeLines: string[], afterLines: string[]): number[][] {
+  const table = Array.from({ length: beforeLines.length + 1 }, () =>
+    Array.from({ length: afterLines.length + 1 }, () => 0)
+  );
+
+  for (let beforeIndex = beforeLines.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
+    for (let afterIndex = afterLines.length - 1; afterIndex >= 0; afterIndex -= 1) {
+      table[beforeIndex][afterIndex] =
+        beforeLines[beforeIndex] === afterLines[afterIndex]
+          ? table[beforeIndex + 1][afterIndex + 1] + 1
+          : Math.max(table[beforeIndex + 1][afterIndex], table[beforeIndex][afterIndex + 1]);
+    }
+  }
+
+  return table;
 }
 
 export function isExecError(error: unknown): error is Error & {
