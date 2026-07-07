@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -60,7 +60,7 @@ describe("confirmation paths and safety limits", () => {
     expect(result.output).toMatch(/not approved/i);
     expect(confirm).toHaveBeenCalledWith({
       kind: "command",
-      message: expect.stringContaining("Dependency changes require confirmation")
+      message: expect.stringContaining("npm install left-pad")
     });
     expect(commandExecutor).not.toHaveBeenCalled();
     expect(session.commandResults).toEqual([]);
@@ -87,7 +87,7 @@ describe("confirmation paths and safety limits", () => {
     expect(result).toEqual({ ok: true, output: "installed\n" });
     expect(confirm).toHaveBeenCalledWith({
       kind: "command",
-      message: expect.stringContaining("Dependency changes require confirmation")
+      message: expect.stringContaining("npm install left-pad")
     });
     expect(commandExecutor).toHaveBeenCalledWith(root, {
       command: "npm install left-pad",
@@ -155,6 +155,137 @@ describe("confirmation paths and safety limits", () => {
     expect(session.errors).toEqual([result.output]);
   });
 
+  it("prompts for the canonical sensitive target when reading through a workspace symlink", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, ".env"), "SECRET=1\n");
+    await symlink(join(root, ".env"), join(root, "link.txt"), "file");
+    const session = createSession("read linked secret");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(true);
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      { type: "tool_call", tool: "read_file", args: { path: "link.txt" } },
+      { confirm }
+    );
+
+    expect(result).toEqual({ ok: true, output: "SECRET=1\n" });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledWith({
+      kind: "file",
+      message: expect.stringMatching(/read[\s\S]*link\.txt[\s\S]*\.env/)
+    });
+    expect(session.filesRead).toEqual([".env"]);
+  });
+
+  it("denies reads through symlinks to sensitive targets without modifying session reads", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, ".env"), "SECRET=1\n");
+    await symlink(join(root, ".env"), join(root, "link.txt"), "file");
+    const session = createSession("read linked secret");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(false);
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      { type: "tool_call", tool: "read_file", args: { path: "link.txt" } },
+      { confirm }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/not approved/i);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledWith({
+      kind: "file",
+      message: expect.stringMatching(/read[\s\S]*link\.txt[\s\S]*\.env/)
+    });
+    expect(session.filesRead).toEqual([]);
+  });
+
+  it("blocks reads through symlinks to outside targets even when confirmation is available", async () => {
+    const root = await tempRoot();
+    const outsideRoot = await tempRoot();
+    await writeFile(join(outsideRoot, "secret.txt"), "SECRET=1\n");
+    await symlink(join(outsideRoot, "secret.txt"), join(root, "link.txt"), "file");
+    const session = createSession("read outside link");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(true);
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      { type: "tool_call", tool: "read_file", args: { path: "link.txt" } },
+      { confirm }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("outside the workspace");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(session.filesRead).toEqual([]);
+  });
+
+  it("prompts for the canonical sensitive target when editing through a workspace symlink", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, ".env"), "SECRET=1\n");
+    await symlink(join(root, ".env"), join(root, "link.txt"), "file");
+    const session = createSession("edit linked secret");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(true);
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      {
+        type: "tool_call",
+        tool: "edit_file",
+        args: {
+          path: "link.txt",
+          search: "SECRET=1",
+          replace: "SECRET=2"
+        }
+      },
+      { confirm }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(await readFile(join(root, ".env"), "utf8")).toBe("SECRET=2\n");
+    expect(confirm).toHaveBeenCalledWith({
+      kind: "file",
+      message: expect.stringMatching(/edit[\s\S]*link\.txt[\s\S]*\.env/)
+    });
+    expect(session.filesModified).toEqual([".env"]);
+  });
+
+  it("denies edits through symlinks to sensitive targets without modifying the target", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, ".env"), "SECRET=1\n");
+    await symlink(join(root, ".env"), join(root, "link.txt"), "file");
+    const session = createSession("edit linked secret");
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(false);
+
+    const result = await dispatchToolCall(
+      root,
+      session,
+      {
+        type: "tool_call",
+        tool: "edit_file",
+        args: {
+          path: "link.txt",
+          search: "SECRET=1",
+          replace: "SECRET=2"
+        }
+      },
+      { confirm }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/not approved/i);
+    expect(await readFile(join(root, ".env"), "utf8")).toBe("SECRET=1\n");
+    expect(confirm).toHaveBeenCalledWith({
+      kind: "file",
+      message: expect.stringMatching(/edit[\s\S]*link\.txt[\s\S]*\.env/)
+    });
+    expect(session.filesModified).toEqual([]);
+  });
+
   it("allows one automatic repair attempt after a failed test command and stops after the second failure", async () => {
     const root = await tempRoot();
     await writeFile(join(root, "package.json"), JSON.stringify({ scripts: { test: "node -e \"process.exit(1)\"" } }));
@@ -188,5 +319,35 @@ describe("confirmation paths and safety limits", () => {
     expect(firstFailedObservation.output).toContain(
       "One automatic repair attempt is allowed. Diagnose and emit the next tool call."
     );
+  });
+
+  it("allows one automatic repair attempt for focused vitest commands and summarizes the latest failure", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "package.json"), JSON.stringify({ devDependencies: { vitest: "4.1.10" } }));
+    const context = await loadProjectContext(root);
+    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(true);
+    const commandExecutor = vi.fn<CommandExecutor>().mockResolvedValue({
+      exitCode: 1,
+      timedOut: false,
+      output: "vitest failed\n"
+    });
+    const llm = new MockLLM([
+      JSON.stringify({ type: "plan", summary: "Run focused tests", steps: ["Run vitest", "Repair once"] }),
+      JSON.stringify({ type: "tool_call", tool: "run_command", args: { command: "npx vitest run" } }),
+      JSON.stringify({ type: "tool_call", tool: "run_command", args: { command: "npx vitest run" } })
+    ]);
+
+    const result = await runAgentTask({
+      userRequest: "run focused tests and repair once",
+      context,
+      llm,
+      routerOptions: { confirm, commandExecutor }
+    });
+
+    expect(result.final.summary).toMatch(/Stopped after .*test/i);
+    expect(result.final.tests).toBe("npx vitest run exited 1");
+    expect(result.session.automaticRepairAttempts).toBe(1);
+    expect(result.session.commandResults).toHaveLength(2);
+    expect(commandExecutor).toHaveBeenCalledTimes(2);
   });
 });

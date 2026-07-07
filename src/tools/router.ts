@@ -1,6 +1,14 @@
-import { normalize } from "node:path";
+import { realpath } from "node:fs/promises";
+import { normalize, relative } from "node:path";
 import type { ToolCallResponse } from "../protocol.js";
-import { classifyCommand, classifyFileAction, type PermissionResult } from "../permissions.js";
+import {
+  classifyCommand,
+  classifyFileAction,
+  isPathInsideRoot,
+  resolveWorkspacePath,
+  type FileAction,
+  type PermissionResult
+} from "../permissions.js";
 import { recordObservation, type SessionState } from "../session.js";
 import { runEditFileTool, runReadFileTool, runSearchTool, type ToolResult } from "./file-tools.js";
 import { runCommandTool, runDiffTool, type CommandExecutor } from "./process-tools.js";
@@ -95,7 +103,17 @@ async function dispatchFileReadWithPermission(
   path: string,
   options: RouterOptions
 ): Promise<ToolResult> {
-  const approval = await approvePermission(classifyFileAction(root, path, "read"), "file", options);
+  const target = await resolveFilePermissionTarget(root, path, "read");
+  if (!target.ok) {
+    return target.result;
+  }
+
+  const approval = await approvePermission(
+    target.permission,
+    "file",
+    options,
+    formatFileConfirmationMessage("read", target.requestedPath, target.canonicalPath, target.permission.reason)
+  );
   if (!approval.ok) {
     return approval.result;
   }
@@ -124,12 +142,22 @@ async function dispatchEditFile(
     search: args.search,
     replace: args.replace
   };
-  const approval = await approvePermission(classifyFileAction(root, editArgs.path, "edit"), "file", options);
+  const target = await resolveFilePermissionTarget(root, editArgs.path, "edit");
+  if (!target.ok) {
+    return target.result;
+  }
+
+  const approval = await approvePermission(
+    target.permission,
+    "file",
+    options,
+    formatFileConfirmationMessage("edit", target.requestedPath, target.canonicalPath, target.permission.reason)
+  );
   if (!approval.ok) {
     return approval.result;
   }
 
-  const limitApproval = await approveEditLimits(session, editArgs, options);
+  const limitApproval = await approveEditLimits(session, editArgs, options, target.canonicalPath);
   if (!limitApproval.ok) {
     return limitApproval.result;
   }
@@ -149,7 +177,13 @@ async function dispatchRunCommand(
     return { ok: false, output: "run_command.command must be a string." };
   }
 
-  const approval = await approvePermission(classifyCommand(args.command), "command", options);
+  const permission = classifyCommand(args.command);
+  const approval = await approvePermission(
+    permission,
+    "command",
+    options,
+    formatCommandConfirmationMessage(args.command, permission.reason)
+  );
   if (!approval.ok) {
     return approval.result;
   }
@@ -180,7 +214,8 @@ type ApprovalResult =
 async function approvePermission(
   permission: PermissionResult,
   kind: "file" | "command",
-  options: RouterOptions
+  options: RouterOptions,
+  message = permission.reason
 ): Promise<ApprovalResult> {
   if (permission.decision === "block") {
     return { ok: false, result: { ok: false, output: permission.reason } };
@@ -190,7 +225,7 @@ async function approvePermission(
     return { ok: true, skipPermissionCheck: false };
   }
 
-  const approved = await requestConfirmation(options, { kind, message: permission.reason });
+  const approved = await requestConfirmation(options, { kind, message });
   if (!approved.ok) {
     return approved;
   }
@@ -201,10 +236,11 @@ async function approvePermission(
 async function approveEditLimits(
   session: SessionState,
   args: { path: string; search: string; replace: string },
-  options: RouterOptions
+  options: RouterOptions,
+  canonicalPath?: string
 ): Promise<{ ok: true } | { ok: false; result: ToolResult }> {
   const maxModifiedFiles = options.maxModifiedFiles ?? DEFAULT_MAX_MODIFIED_FILES;
-  const pathKey = normalizeWorkspacePath(args.path);
+  const pathKey = canonicalPath ?? normalizeWorkspacePath(args.path);
   if (maxModifiedFiles >= 0 && !session.filesModified.includes(pathKey) && session.filesModified.length >= maxModifiedFiles) {
     const approved = await requestConfirmation(options, {
       kind: "limit",
@@ -230,6 +266,89 @@ async function approveEditLimits(
   return { ok: true };
 }
 
+type FilePermissionTarget =
+  | {
+      ok: true;
+      requestedPath: string;
+      canonicalPath: string;
+      permission: PermissionResult;
+    }
+  | { ok: false; result: ToolResult };
+
+async function resolveFilePermissionTarget(
+  root: string,
+  requestedPath: string,
+  action: FileAction
+): Promise<FilePermissionTarget> {
+  const requestedPermission = classifyFileAction(root, requestedPath, action);
+  if (requestedPermission.decision === "block") {
+    return { ok: false, result: { ok: false, output: requestedPermission.reason } };
+  }
+
+  try {
+    const rootRealPath = await realpath(root);
+    const resolved = resolveWorkspacePath(root, requestedPath);
+    const candidateRealPath = await realpath(resolved);
+
+    if (!isPathInsideRoot(rootRealPath, candidateRealPath)) {
+      return { ok: false, result: { ok: false, output: "Path is outside the workspace." } };
+    }
+
+    const canonicalPath = normalizeWorkspacePathFromRoot(rootRealPath, candidateRealPath);
+    const canonicalPermission = classifyFileAction(rootRealPath, canonicalPath, action);
+    if (canonicalPermission.decision === "block") {
+      return { ok: false, result: { ok: false, output: canonicalPermission.reason } };
+    }
+
+    return {
+      ok: true,
+      requestedPath,
+      canonicalPath,
+      permission: chooseFilePermission(requestedPermission, canonicalPermission)
+    };
+  } catch (error) {
+    return { ok: false, result: { ok: false, output: formatError(`Unable to access ${requestedPath}`, error) } };
+  }
+}
+
+function chooseFilePermission(
+  requestedPermission: PermissionResult,
+  canonicalPermission: PermissionResult
+): PermissionResult {
+  if (canonicalPermission.decision === "confirm") {
+    return canonicalPermission;
+  }
+
+  if (requestedPermission.decision === "confirm") {
+    return requestedPermission;
+  }
+
+  return canonicalPermission;
+}
+
+function formatFileConfirmationMessage(
+  action: FileAction,
+  requestedPath: string,
+  canonicalPath: string,
+  reason: string
+): string {
+  const parts = [
+    reason,
+    `Action: ${action}.`,
+    `Requested path: ${requestedPath}.`
+  ];
+
+  if (normalizeWorkspacePath(requestedPath) !== canonicalPath) {
+    parts.push(`Resolved path: ${canonicalPath}.`);
+  }
+
+  return parts.join(" ");
+}
+
+function formatCommandConfirmationMessage(command: string, reason: string): string {
+  return `${reason} Command: ${command}`;
+}
+
 async function requestConfirmation(
   options: RouterOptions,
   prompt: ConfirmationPrompt
@@ -250,6 +369,15 @@ async function requestConfirmation(
 
 function normalizeWorkspacePath(path: string): string {
   return normalize(path).replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function normalizeWorkspacePathFromRoot(rootRealPath: string, candidateRealPath: string): string {
+  return relative(rootRealPath, candidateRealPath).replace(/\\/g, "/");
+}
+
+function formatError(prefix: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${prefix}: ${message}`;
 }
 
 function countChangedLines(search: string, replace: string): number {

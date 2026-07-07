@@ -186,9 +186,10 @@ function summarizeTests(session: SessionState): string {
 }
 
 function isTestCommand(command: string): boolean {
-  return /\btest\b/.test(command);
+  const normalized = command.toLowerCase();
+  return /\btest\b/.test(normalized) || /\b(vitest|jest|mocha)\b/.test(normalized);
 }
 
 function isCheckCommand(command: string): boolean {
-  return /\b(test|build|lint)\b/.test(command);
+  return isTestCommand(command) || /\b(build|lint)\b/.test(command.toLowerCase());
 }
