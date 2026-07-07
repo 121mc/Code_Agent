@@ -32,6 +32,7 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
   const maxToolCalls = input.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
   const maxLlmTurns = input.maxLlmTurns ?? DEFAULT_MAX_LLM_TURNS;
   let llmTurnCount = 0;
+  let hasAcceptedPlan = false;
 
   while (llmTurnCount < maxLlmTurns) {
     if (session.toolCallCount >= maxToolCalls) {
@@ -40,7 +41,7 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
           type: "final",
           summary: "Stopped after reaching the tool call limit.",
           tests: summarizeTests(session),
-          changedFiles: session.filesModified
+          changedFiles: [...session.filesModified]
         },
         session
       };
@@ -52,7 +53,7 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
           type: "final",
           summary: "Stopped after repeated tool failures.",
           tests: summarizeTests(session),
-          changedFiles: session.filesModified
+          changedFiles: [...session.filesModified]
         },
         session
       };
@@ -69,6 +70,7 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
     }
 
     if (parsed.response.type === "plan") {
+      hasAcceptedPlan = true;
       session.plan = parsed.response.steps;
       input.onPlan?.(parsed.response);
       messages.push({ role: "assistant", content: JSON.stringify(parsed.response) });
@@ -77,7 +79,16 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
     }
 
     if (parsed.response.type === "final") {
-      return { final: parsed.response, session };
+      return { final: reconcileFinalResponse(parsed.response, session), session };
+    }
+
+    if (!hasAcceptedPlan) {
+      messages.push({ role: "assistant", content: JSON.stringify(parsed.response) });
+      messages.push({
+        role: "user",
+        content: "A plan response is required before any tool_call. Return a plan JSON object first."
+      });
+      continue;
     }
 
     const observation = await dispatchToolCall(
@@ -86,6 +97,7 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
       parsed.response,
       { isGitRepository: input.context.isGitRepository }
     );
+    recordCommandResultIfNeeded(session, parsed.response, observation);
 
     messages.push({ role: "assistant", content: JSON.stringify(parsed.response) });
     messages.push({
@@ -104,17 +116,45 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
       type: "final",
       summary: "Stopped after reaching the LLM turn limit.",
       tests: summarizeTests(session),
-      changedFiles: session.filesModified
+      changedFiles: [...session.filesModified]
     },
     session
   };
 }
 
-function summarizeTests(session: SessionState): string {
-  const testCommand = session.commandResults.find((result) => /\b(test|build|lint)\b/.test(result.command));
-  if (!testCommand) {
-    return "not run";
+function reconcileFinalResponse(final: FinalResponse, session: SessionState): FinalResponse {
+  const testSummary = summarizeTests(session);
+  return {
+    ...final,
+    tests: testSummary === "not run" ? final.tests : testSummary,
+    changedFiles: [...session.filesModified]
+  };
+}
+
+function recordCommandResultIfNeeded(
+  session: SessionState,
+  response: { tool: string; args: Record<string, unknown> },
+  observation: { ok: boolean; output: string }
+): void {
+  if (response.tool !== "run_command" || typeof response.args.command !== "string") {
+    return;
   }
 
-  return `${testCommand.command} exited ${testCommand.exitCode ?? "unknown"}`;
+  session.commandResults.push({
+    command: response.args.command,
+    exitCode: observation.ok ? 0 : null,
+    timedOut: false,
+    output: observation.output
+  });
+}
+
+function summarizeTests(session: SessionState): string {
+  for (let index = session.commandResults.length - 1; index >= 0; index -= 1) {
+    const commandResult = session.commandResults[index];
+    if (commandResult && /\b(test|build|lint)\b/.test(commandResult.command)) {
+      return `${commandResult.command} exited ${commandResult.exitCode ?? "unknown"}`;
+    }
+  }
+
+  return "not run";
 }
