@@ -9,7 +9,7 @@ export interface PermissionResult {
 }
 
 const SENSITIVE_FILE_PATTERNS = [
-  /^\.env.*$/,
+  /(^|\/)\.env.*$/,
   /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/,
   /^\.github(\/|$)/,
   /(^|\/).*\.pem$/,
@@ -53,20 +53,18 @@ export function classifyFileAction(root: string, requestedPath: string, action: 
 }
 
 export function classifyCommand(command: string): PermissionResult {
-  const normalized = command.trim().replace(/\s+/g, " ");
-  const lower = normalized.toLowerCase();
-
-  if (
-    /^(rm\s+-[a-z]*r[a-z]*f|del\s+\/|rmdir\s+\/s|rd\s+\/s|remove-item\b.*\b-recurse\b|git\s+reset\s+--hard)(\s|$)/.test(lower)
-  ) {
+  if (hasDestructiveCommand(command)) {
     return { decision: "block", reason: "Destructive command is blocked." };
   }
 
-  if (/[;&|`<>]/.test(normalized)) {
+  if (hasShellControlSyntax(command)) {
     return { decision: "confirm", reason: "Shell chaining or redirection requires confirmation." };
   }
 
-  if (/^(npm|pnpm|yarn)\s+(test|run\s+test|run\s+build|run\s+lint|lint|build)(\s|$)/.test(lower)) {
+  const normalized = command.trim().replace(/\s+/g, " ");
+  const lower = normalized.toLowerCase();
+
+  if (/^(npm|pnpm|yarn)\s+(test|run\s+test|run\s+build|run\s+lint|lint|build)$/.test(lower)) {
     return { decision: "allow", reason: "Test, lint, or build command is allowed." };
   }
 
@@ -83,4 +81,21 @@ export function classifyCommand(command: string): PermissionResult {
   }
 
   return { decision: "confirm", reason: "Unrecognized command requires confirmation." };
+}
+
+function hasDestructiveCommand(command: string): boolean {
+  const lower = command.toLowerCase();
+  return [
+    /\brm\s+-[a-z]*r[a-z]*f[a-z]*\b/,
+    /\brm\s+-[a-z]*f[a-z]*r[a-z]*\b/,
+    /\bgit\s+reset\s+--hard\b/,
+    /\bdel\s+\//,
+    /\brmdir\s+\/s\b/,
+    /\brd\s+\/s\b/,
+    /\bremove-item\b[\s\S]*\b-recurse\b/
+  ].some((pattern) => pattern.test(lower));
+}
+
+function hasShellControlSyntax(command: string): boolean {
+  return /[\r\n;&|`<>]/.test(command) || command.includes("$(");
 }
