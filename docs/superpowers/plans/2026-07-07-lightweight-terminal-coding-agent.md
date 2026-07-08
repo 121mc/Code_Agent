@@ -16,20 +16,20 @@
 - Branch: `codex/lightweight-terminal-coding-agent`
 - Pull request: `https://github.com/121mc/Code_Agent/pull/2`
 
-| Task | Status | Commit hash(es) | Notes |
+| Task | Status | Commit(s) | Notes |
 | --- | --- | --- | --- |
-| Task 1: Bootstrap TypeScript CLI Project | Completed | `316612d`, `bf19efa` | Scaffolded TypeScript CLI; tightened test configuration after review. |
-| Task 2: JSON Protocol Parser | Completed | `b805333`, `e48a6d6` | Added protocol parser and expanded parser coverage. |
-| Task 3: Project Context and Model Configuration | Completed | `4e78b52` | Added config loading, masking, project context, and `Claude.md` helpers. |
-| Task 4: Permission Guard | Completed | `4953c9a`, `2d2c136`, `b31fdaf`, `9009ff8` | Added permission guard and hardened destructive command classification. |
-| Task 5: Session State and File Tools | Completed | `b786a8a`, `610c709`, `6337c4e`, `b5a9e40` | Added session/file tools and hardened symlink, UTF-8, failed-write, and canonical path behavior. |
-| Task 6: Command, Diff, and Tool Router | Completed | `736bb39`, `26fd63e`, `e162a37`, `b5a9e40` | Added process/router tools; fixed snapshot diff correctness, memory cap, and Git fallback. |
-| Task 7: OpenAI-Compatible LLM Client | Completed | `92ae298`, `c1ca574` | Added LLM client, prompt, request assertions, and error-path handling. |
-| Task 8: Agent Orchestrator Loop | Completed | `067d27a`, `91d3f50`, `2edfc18` | Added orchestration loop; enforced plan-first execution and session-authoritative final metadata. |
-| Task 9: CLI, REPL, and Built-In Commands | Completed | `f19156f`, `848dbb8`, `cc70572` | Added CLI/REPL commands; hardened slash-command handling and removed import cycle. |
-| Task 10: Integration Coverage and Acceptance Documentation | Completed | `d317778`, `cd3dc9a`, `b5a9e40` | Added MVP integration coverage and aligned README acceptance documentation. |
-| Task 11: Confirmation Paths and Loop Limit Hardening | Completed | `893d44c`, `dec2e63`, `0609c5f` | Added confirmation flows, loop limits, command result tracking, and realpath-bound approvals. |
-| Task 12: MVP Spec Review and Hardening Pass | Completed | `b5a9e40` | Addressed final review gaps and completed verification. |
+| Task 1: Bootstrap TypeScript CLI Project | Completed | `316612d` chore: scaffold TypeScript CLI<br>`bf19efa` fix: tighten scaffold test configuration | Scaffolded TypeScript CLI; tightened test configuration after review. |
+| Task 2: JSON Protocol Parser | Completed | `b805333` feat: add custom JSON protocol parser<br>`e48a6d6` test: expand protocol parser coverage | Added protocol parser and expanded parser coverage. |
+| Task 3: Project Context and Model Configuration | Completed | `4e78b52` feat: load project context and model config | Added config loading, masking, project context, and `Claude.md` helpers. |
+| Task 4: Permission Guard | Completed | `4953c9a` feat: add permission guard<br>`2d2c136` fix: harden permission classification<br>`b31fdaf` fix: block destructive command variants<br>`9009ff8` fix: block powershell recursive delete aliases | Added permission guard and hardened destructive command classification. |
+| Task 5: Session State and File Tools | Completed | `b786a8a` feat: add session state and file tools<br>`610c709` fix: harden file tool boundaries<br>`6337c4e` fix: reject invalid utf8 file content<br>`b5a9e40` fix: address final review gaps | Added session/file tools and hardened symlink, UTF-8, failed-write, and canonical path behavior. |
+| Task 6: Command, Diff, and Tool Router | Completed | `736bb39` feat: route command and diff tools<br>`26fd63e` fix: preserve duplicate lines in snapshot diffs<br>`e162a37` fix: cap snapshot diff memory usage<br>`b5a9e40` fix: address final review gaps | Added process/router tools; fixed snapshot diff correctness, memory cap, and Git fallback. |
+| Task 7: OpenAI-Compatible LLM Client | Completed | `92ae298` feat: add OpenAI-compatible LLM client<br>`c1ca574` test: cover llm request and error paths | Added LLM client, prompt, request assertions, and error-path handling. |
+| Task 8: Agent Orchestrator Loop | Completed | `067d27a` feat: add agent orchestration loop<br>`91d3f50` fix: enforce planned agent execution<br>`2edfc18` fix: make test summaries session authoritative | Added orchestration loop; enforced plan-first execution and session-authoritative final metadata. |
+| Task 9: CLI, REPL, and Built-In Commands | Completed | `f19156f` feat: add CLI and REPL commands<br>`848dbb8` fix: harden slash command handling<br>`cc70572` fix: contain slash command failures | Added CLI/REPL commands; hardened slash-command handling and removed import cycle. |
+| Task 10: Integration Coverage and Acceptance Documentation | Completed | `d317778` test: cover MVP agent workflow<br>`cd3dc9a` test: strengthen MVP workflow assertions<br>`b5a9e40` fix: address final review gaps | Added MVP integration coverage and aligned README acceptance documentation. |
+| Task 11: Confirmation Paths and Loop Limit Hardening | Completed | `893d44c` feat: add confirmations and loop limits<br>`dec2e63` fix: bind confirmations to canonical targets<br>`0609c5f` fix: bind file approvals to real targets | Added confirmation flows, loop limits, command result tracking, and realpath-bound approvals. |
+| Task 12: MVP Spec Review and Hardening Pass | Completed | `b5a9e40` fix: address final review gaps<br>`a8d7976` docs: record plan task commits | Addressed final review gaps, recorded task commit metadata, and completed verification. |
 
 ## Source Spec
 
