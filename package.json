@@ -1,7 +1,7 @@
 {
   "name": "lightweight-terminal-coding-agent",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "bin": {
     "code-agent": "dist/src/index.js"
@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/src/index.js"
