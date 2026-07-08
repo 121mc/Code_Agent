@@ -2,6 +2,8 @@
 
 Node.js and TypeScript CLI for a lightweight local coding agent.
 
+https://github.com/121mc/Code_Agent
+
 ## Install
 
 Requirements:
