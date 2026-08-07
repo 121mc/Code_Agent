@@ -92,6 +92,9 @@ describe("slash commands", () => {
   it("writes a clear diff message outside Git workspaces", async () => {
     const root = await tempRoot();
     const output: string[] = [];
+    // Stop Git discovery at this fixture when the OS temp directory itself is
+    // nested inside a repository (for example, when the user's home is one).
+    await writeFile(join(root, ".git"), "not a git repository");
 
     const result = await handleSlashCommand("/diff", { root, write: (line) => output.push(line) });
 
