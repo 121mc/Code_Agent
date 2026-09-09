@@ -1,8 +1,9 @@
+import * as configModule from "../src/config.js";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildHelpText } from "../src/index.js";
 import { formatPlan, handleSlashCommand } from "../src/cli.js";
 
@@ -16,6 +17,7 @@ async function tempRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(
     tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
   );
@@ -61,6 +63,7 @@ describe("slash commands", () => {
     const root = await tempRoot();
     const output: string[] = [];
 
+    vi.spyOn(configModule, "loadModelConfig").mockRejectedValueOnce(new Error("Missing CODE_AGENT_API_KEY"));
     await withClearedConfigEnv(async () => {
       const result = await handleSlashCommand("/config", { root, write: (line) => output.push(line) });
 
@@ -69,24 +72,16 @@ describe("slash commands", () => {
     });
   });
 
-  it("writes masked config and continues when config is present", async () => {
+  it("loads config independently of the workspace and masks the key", async () => {
     const root = await tempRoot();
     const output: string[] = [];
-    await mkdir(join(root, ".code-agent"));
-    await writeFile(join(root, ".code-agent", "config.json"), JSON.stringify({
-      baseURL: "https://llm.example/v1",
-      apiKey: "sk-test-secret",
-      model: "test-model"
-    }));
-
-    await withClearedConfigEnv(async () => {
-      const result = await handleSlashCommand("/config", { root, write: (line) => output.push(line) });
-
-      expect(result).toBe("continue");
-      expect(output.join("\n")).toContain('"apiKey": "sk-...cret"');
-      expect(output.join("\n")).toContain('"model": "test-model"');
-      expect(output.join("\n")).not.toContain("sk-test-secret");
+    const loader = vi.spyOn(configModule, "loadModelConfig").mockResolvedValueOnce({
+      baseURL: "https://llm.example/v1", apiKey: "sk-test-secret", model: "test-model"
     });
+    await handleSlashCommand("/config", { root, write: (line) => output.push(line) });
+    expect(loader).toHaveBeenCalledWith();
+    expect(output.join("\n")).toContain('"apiKey": "sk-...cret"');
+    expect(output.join("\n")).not.toContain("sk-test-secret");
   });
 
   it("writes a clear diff message outside Git workspaces", async () => {
@@ -115,13 +110,13 @@ describe("slash commands", () => {
     expect(output.join("\n")).toContain("Command failed:");
   });
 
-  it("exits cleanly when piped input closes after a contained slash command failure", async () => {
+  it("exits cleanly when piped input closes after a slash command", async () => {
     const root = await tempRoot();
 
-    const result = await runCliProcess(root, "/config\n");
+    const result = await runCliProcess(root, "/help\n");
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Missing CODE_AGENT");
+    expect(result.stdout).toContain("/config");
     expect(result.stderr).not.toContain("code-agent failed");
   });
 

@@ -73,7 +73,9 @@ export async function runDiffTool(
         windowsHide: true
       });
       if (stdout || stderr) {
-        return { ok: true, output: stdout || stderr };
+        const createdDiff = await runSnapshotDiff(root, { ...session, filesModified: session.filesCreated });
+        return { ok: createdDiff.result.ok, output: [stdout || stderr,
+          ...(createdDiff.hasSnapshots ? [createdDiff.result.output] : [])].join("\n") };
       }
 
       const snapshotDiff = await runSnapshotDiff(root, session);

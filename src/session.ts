@@ -17,6 +17,7 @@ export interface SessionState {
   observations: ToolObservation[];
   filesRead: string[];
   filesModified: string[];
+  filesCreated: string[];
   preEditSnapshots: Map<string, string>;
   commandResults: CommandResult[];
   errors: string[];
@@ -32,6 +33,7 @@ export function createSession(userRequest: string): SessionState {
     observations: [],
     filesRead: [],
     filesModified: [],
+    filesCreated: [],
     preEditSnapshots: new Map<string, string>(),
     commandResults: [],
     errors: [],

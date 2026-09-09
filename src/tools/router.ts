@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { resolveCreateTarget, runCreateFileTool } from "./create-file.js";
 import { normalize, relative } from "node:path";
 import type { ToolCallResponse } from "../protocol.js";
 import {
@@ -67,6 +68,8 @@ async function dispatch(
       return dispatchReadFile(root, session, call.args, options);
     case "edit_file":
       return dispatchEditFile(root, session, call.args, options);
+    case "create_file":
+      return dispatchCreateFile(root, session, call.args, options);
     case "run_command":
       return dispatchRunCommand(root, session, call.args, options);
     case "diff":
@@ -74,6 +77,19 @@ async function dispatch(
     default:
       return { ok: false, output: `Unsupported tool: ${String(call.tool)}` };
   }
+}
+
+async function dispatchCreateFile(root: string, session: SessionState, args: Record<string, unknown>, options: RouterOptions): Promise<ToolResult> {
+  if (typeof args.path !== "string" || typeof args.content !== "string") {
+    return { ok: false, output: "create_file.path and create_file.content must be strings." };
+  }
+  const target = await resolveCreateTarget(root, args.path);
+  const approval = await approvePermission(target.permission, "file", options,
+    formatFileConfirmationMessage("create", args.path, target.relativePath, target.permission.reason));
+  if (!approval.ok) return approval.result;
+  const limits = await approveEditLimits(session, { path: args.path, search: "", replace: args.content }, options, target.relativePath);
+  if (!limits.ok) return limits.result;
+  return runCreateFileTool(root, session, { path: args.path, content: args.content }, target.fullPath);
 }
 
 function dispatchSearch(root: string, args: Record<string, unknown>): Promise<ToolResult> | ToolResult {

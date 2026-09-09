@@ -3,6 +3,7 @@ import { buildSystemPrompt, type ChatMessage, type LLMClient } from "./llm.js";
 import type { ProjectContext } from "./project-context.js";
 import { createSession, type SessionState } from "./session.js";
 import { dispatchToolCall, type RouterOptions } from "./tools/router.js";
+import { DEFAULT_AGENT_LIMITS, validateLimit } from "./limits.js";
 
 export interface RunAgentTaskInput {
   userRequest: string;
@@ -10,6 +11,7 @@ export interface RunAgentTaskInput {
   llm: LLMClient;
   maxToolCalls?: number;
   maxLlmTurns?: number;
+  maxAutomaticRepairAttempts?: number;
   routerOptions?: RouterOptions;
   onPlan?: (plan: PlanResponse) => void;
 }
@@ -19,8 +21,6 @@ export interface RunAgentTaskResult {
   session: SessionState;
 }
 
-const DEFAULT_MAX_TOOL_CALLS = 20;
-const DEFAULT_MAX_LLM_TURNS = 40;
 const MAX_CONSECUTIVE_TOOL_FAILURES = 3;
 const MAX_OBSERVATION_OUTPUT_BYTES = 12_000;
 
@@ -31,8 +31,9 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
     { role: "user", content: input.userRequest }
   ];
 
-  const maxToolCalls = input.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
-  const maxLlmTurns = input.maxLlmTurns ?? DEFAULT_MAX_LLM_TURNS;
+  const maxToolCalls = validateLimit("maxToolCalls", input.maxToolCalls ?? DEFAULT_AGENT_LIMITS.maxToolCalls);
+  const maxLlmTurns = validateLimit("maxLlmTurns", input.maxLlmTurns ?? DEFAULT_AGENT_LIMITS.maxLlmTurns);
+  const maxRepairs = validateLimit("maxAutomaticRepairAttempts", input.maxAutomaticRepairAttempts ?? DEFAULT_AGENT_LIMITS.maxAutomaticRepairAttempts, 0);
   let llmTurnCount = 0;
   let hasAcceptedPlan = false;
 
@@ -93,13 +94,15 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
       continue;
     }
 
+    const previousCommandCount = session.commandResults.length;
     const observation = await dispatchToolCall(
       input.context.root,
       session,
       parsed.response,
       { ...input.routerOptions, isGitRepository: input.context.isGitRepository }
     );
-    const testFailureAction = handleFailedTestCommand(session, parsed.response, observation);
+    const testFailureAction = handleFailedTestCommand(session, parsed.response, observation, maxRepairs,
+      session.commandResults.length > previousCommandCount);
 
     messages.push({ role: "assistant", content: JSON.stringify(parsed.response) });
     messages.push({
@@ -110,7 +113,7 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
         ok: observation.ok,
         output: compactObservationOutput(
           testFailureAction.guidance
-            ? appendRepairGuidance(observation.output)
+            ? appendRepairGuidance(observation.output, session.automaticRepairAttempts, maxRepairs)
             : observation.output
         )
       })
@@ -120,7 +123,7 @@ export async function runAgentTask(input: RunAgentTaskInput): Promise<RunAgentTa
       return {
         final: {
           type: "final",
-          summary: "Stopped after a second failed test command.",
+          summary: `Stopped after exhausting the automatic repair limit (${maxRepairs}).`,
           tests: summarizeTests(session),
           changedFiles: [...session.filesModified]
         },
@@ -151,10 +154,12 @@ function reconcileFinalResponse(final: FinalResponse, session: SessionState): Fi
 function handleFailedTestCommand(
   session: SessionState,
   response: { tool: string; args: Record<string, unknown> },
-  observation: { ok: boolean; output: string }
+  observation: { ok: boolean; output: string },
+  maxRepairs: number,
+  commandExecuted: boolean
 ): { guidance: boolean; stop: boolean } {
   if (
-    observation.ok ||
+    observation.ok || !commandExecuted ||
     response.tool !== "run_command" ||
     typeof response.args.command !== "string" ||
     !isTestCommand(response.args.command)
@@ -162,7 +167,9 @@ function handleFailedTestCommand(
     return { guidance: false, stop: false };
   }
 
-  if (session.automaticRepairAttempts === 0) {
+  // An executed failing test is repair feedback, not a broken tool invocation.
+  session.consecutiveToolFailures = 0;
+  if (session.automaticRepairAttempts < maxRepairs) {
     session.automaticRepairAttempts += 1;
     return { guidance: true, stop: false };
   }
@@ -170,10 +177,10 @@ function handleFailedTestCommand(
   return { guidance: false, stop: true };
 }
 
-function appendRepairGuidance(output: string): string {
+function appendRepairGuidance(output: string, attempt: number, maximum: number): string {
   return [
     output,
-    "One automatic repair attempt is allowed. Diagnose and emit the next tool call."
+    `Automatic repair attempt ${attempt}/${maximum}. Diagnose the test failure, fix the code, and rerun tests.`
   ].join("\n");
 }
 

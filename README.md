@@ -43,25 +43,48 @@ npm run dev -- --help
 
 ## Runtime Configuration
 
-The agent reads OpenAI-compatible settings from environment variables or `.code-agent/config.json`:
+The agent reads configuration only from `.env` in its own package/project root, located from the running module path. It does not read the task workspace's `.env`, legacy `.code-agent/config.json`, or `CODE_AGENT_*` process environment variables. This works with both source execution and compiled execution, regardless of the current working directory.
 
-- `CODE_AGENT_BASE_URL`
-- `CODE_AGENT_API_KEY`
-- `CODE_AGENT_MODEL`
+Copy `.env.example` to `.env` in the code-agent root and set:
 
-Safer local setup is to create `.code-agent/config.json` on the target machine. This file is ignored by Git and must not be committed:
-
-```json
-{
-  "baseURL": "https://api.openai.com/v1",
-  "apiKey": "replace-with-your-own-key",
-  "model": "gpt-4.1-mini"
-}
+```dotenv
+CODE_AGENT_BASE_URL=https://api.openai.com/v1
+CODE_AGENT_API_KEY=replace-with-your-own-key
+CODE_AGENT_MODEL=gpt-4.1-mini
 ```
 
-Environment variables are also supported, but they are visible to the current process and can leak through shell history if exported directly. The `/config` command only prints a masked key.
+Quoted values and comments use Node.js dotenv syntax. Quote values containing `#`. The real `.env` is ignored by Git and must be excluded from submission archives. The `/config` command only displays a masked key. For an npm-installed copy, configure its installed package root; it is a separate copy from the source checkout.
+
+### Windows one-click setup
+
+Double-click `init.bat` in this project root. Node.js 20.19+ and npm must already be installed. The script first adds this project directory to the current user's PATH, then prompts for the API base URL and a hidden API key. It requests `GET <base URL>/models` with Bearer authentication, lists the returned model IDs, and lets you select a model by number. Once selected, it creates or updates the root `.env`, then runs `npm ci` and `npm run build`. No administrator rights are needed. Existing PATH entries are preserved and repeat runs do not duplicate this path.
+
+The wizard preserves other variables in an existing `.env` (formatting and comments are rewritten). Failed model requests can be retried; quitting before selection keeps the previous `.env` intact. Providers must support the OpenAI-compatible `/models` endpoint. Rerun `init.bat` to change configuration.
+
+After initialization, open a new terminal (restart an existing IDE if needed):
+
+```bat
+cd /d D:\your-target-project
+code-agent
+```
+
+The launcher `code-agent.cmd` retains the terminal's working directory as the task workspace, while configuration always comes from code-agent's own root. Keep this checkout in place; after moving it, rerun setup and remove its old PATH entry. If another global installation shadows this command, use `where code-agent` to locate it or invoke this project's `code-agent.cmd` directly.
 
 ## Usage
+
+The model can use `create_file` with `{ "path": "solutions/two_sum.ts", "content": "..." }` to create UTF-8 files and missing parent directories. Existing files are never overwritten by this tool; the model uses `edit_file` to change them. New files are included in the task's changed-file list and diff. Creation follows the same sensitive-file, large-edit and modified-file-count confirmations as editing, and rejects parent symlinks/junctions and paths outside the workspace.
+
+Failed tests can trigger up to **5 automatic repair attempts per task** by default (shared across all test commands in that task). After those attempts, another failed test stops the task and reports the failure. Successfully executed but failing tests use this repair budget; denied or broken tool calls still use the separate consecutive-tool-failure limit.
+
+Optional settings in code-agent's own root `.env`:
+
+```dotenv
+CODE_AGENT_MAX_REPAIR_ATTEMPTS=5
+CODE_AGENT_MAX_TOOL_CALLS=80
+CODE_AGENT_MAX_LLM_TURNS=120
+```
+
+Repair attempts accept integers >= 0 (`0` stops on the first failed test); tool calls and model turns accept integers >= 1. The first exhausted limit stops the task. These defaults also apply when the settings are omitted. `init.bat` preserves these settings when updating API configuration.
 
 ```bash
 code-agent
@@ -104,7 +127,7 @@ Known limits:
 ## Security Boundary
 
 - The project never requires real API keys in the repository.
-- `.code-agent/config.json` and `.env*` are ignored by Git.
+- `.code-agent/config.json` and real `.env*` configuration are ignored by Git; `.env.example` contains placeholders only.
 - `/config` masks the API key before display.
 - File tools restrict reads and edits to the startup workspace and require confirmation for sensitive targets such as `.env*`, lockfiles, CI files, and private key material.
 - Command tools allow common test, lint, and build commands automatically, require confirmation for unknown or network/dependency commands, and block destructive command variants.
@@ -133,6 +156,6 @@ CI runs dependency installation, unit tests, and TypeScript build:
 
 1. Create a small TypeScript sample project in a temporary directory.
 2. Add a `Claude.md` with project conventions and test commands.
-3. Configure `CODE_AGENT_BASE_URL`, `CODE_AGENT_API_KEY`, and `CODE_AGENT_MODEL`, or create `.code-agent/config.json` on that target machine.
+3. Configure `CODE_AGENT_BASE_URL`, `CODE_AGENT_API_KEY`, and `CODE_AGENT_MODEL` in `.env` at code-agent's own package root.
 4. Run `code-agent "change parseUser so empty input returns anonymous"`.
 5. Confirm the agent prints a plan, searches and reads relevant files, applies one small edit, runs an allowed test or build command when requested by the model, prints changed files, and prints a final one-shot diff. Current diffs are also available through `/diff` in Git workspaces or through a model-invoked `diff` tool observation during the task.

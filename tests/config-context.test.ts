@@ -1,8 +1,9 @@
+import { pathToFileURL } from "node:url";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadModelConfig, maskConfigForDisplay } from "../src/config.js";
+import { getAgentRoot, loadModelConfig, maskConfigForDisplay } from "../src/config.js";
 import { createInitialClaudeMd, loadProjectContext } from "../src/project-context.js";
 
 const tempRoots: string[] = [];
@@ -18,13 +19,14 @@ afterEach(async () => {
 });
 
 describe("model configuration", () => {
-  it("loads environment configuration and masks secrets for display", async () => {
+  it("loads root .env configuration and masks secrets for display", async () => {
     const root = await tempRoot();
-    const config = await loadModelConfig(root, {
-      CODE_AGENT_BASE_URL: "https://llm.example/v1",
-      CODE_AGENT_API_KEY: "sk-test-secret",
-      CODE_AGENT_MODEL: "test-model"
-    });
+    await writeFile(join(root, ".env"), [
+      'CODE_AGENT_BASE_URL=https://llm.example/v1',
+      'CODE_AGENT_API_KEY="sk-test-secret"',
+      'CODE_AGENT_MODEL=test-model'
+    ].join("\n"));
+    const config = await loadModelConfig(root);
 
     expect(config).toEqual({
       baseURL: "https://llm.example/v1",
@@ -38,21 +40,32 @@ describe("model configuration", () => {
     });
   });
 
-  it("loads .code-agent/config.json when env values are absent", async () => {
+  it("does not fall back to legacy JSON or process environment", async () => {
     const root = await tempRoot();
     await mkdir(join(root, ".code-agent"));
-    await writeFile(join(root, ".code-agent", "config.json"), JSON.stringify({
-      baseURL: "https://local.example/v1",
-      apiKey: "local-key",
-      model: "local-model"
-    }));
+    await writeFile(join(root, ".code-agent", "config.json"), '{"apiKey":"legacy"}');
+    await expect(loadModelConfig(root)).rejects.toThrow("Missing CODE_AGENT_BASE_URL");
+  });
 
-    await expect(loadModelConfig(root, {})).resolves.toEqual({
-      baseURL: "https://local.example/v1",
-      apiKey: "local-key",
-      model: "local-model"
+  it("supports BOM, CRLF, comments and quoted hash characters", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, ".env"), '\uFEFF# configuration\r\nCODE_AGENT_BASE_URL=https://example.com/v1\r\nCODE_AGENT_API_KEY="test#key=123"\r\nCODE_AGENT_MODEL=test-model # comment\r\n');
+    await expect(loadModelConfig(root)).resolves.toEqual({
+      baseURL: "https://example.com/v1", apiKey: "test#key=123", model: "test-model"
     });
   });
+
+  it("locates the package root from source and compiled modules", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "package.json"), '{}');
+    for (const folder of ["src", "dist/src"]) {
+      await mkdir(join(root, folder), { recursive: true });
+      const entry = join(root, folder, "config.js");
+      await writeFile(entry, "");
+      expect(getAgentRoot(pathToFileURL(entry).href)).toBe(root);
+    }
+  });
+
 });
 
 describe("project context", () => {

@@ -5,4 +5,5 @@ coverage/
 .code-agent/config.json
 .env
 .env.*
+!.env.example
 *.tgz

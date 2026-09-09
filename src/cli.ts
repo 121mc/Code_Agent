@@ -1,7 +1,7 @@
 import { stdout as output, stdin as input } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { runAgentTask } from "./agent.js";
-import { loadModelConfig, maskConfigForDisplay } from "./config.js";
+import { loadAgentLimits, loadModelConfig, maskConfigForDisplay } from "./config.js";
 import { buildHelpText } from "./help.js";
 import { OpenAICompatibleClient, type LLMClient } from "./llm.js";
 import { createInitialClaudeMd, loadProjectContext } from "./project-context.js";
@@ -89,7 +89,7 @@ async function runSlashCommand(command: string, io: CliIO): Promise<SlashCommand
 
   if (trimmed === "/config") {
     try {
-      const config = await loadModelConfig(io.root);
+      const config = await loadModelConfig();
       io.write(JSON.stringify(maskConfigForDisplay(config), null, 2));
     } catch (error) {
       io.write(error instanceof Error ? error.message : String(error));
@@ -112,8 +112,9 @@ async function runOneShot(
   confirm?: (prompt: ConfirmationPrompt) => Promise<boolean>
 ): Promise<void> {
   const context = await loadProjectContext(root);
-  const llm = injectedLlm ?? new OpenAICompatibleClient(await loadModelConfig(root));
+  const llm = injectedLlm ?? new OpenAICompatibleClient(await loadModelConfig());
   const result = await runAgentTask({
+    ...await loadAgentLimits(),
     userRequest,
     context,
     llm,
@@ -163,7 +164,12 @@ async function runRepl(root: string, injectedLlm?: LLMClient): Promise<void> {
         continue;
       }
 
-      await runOneShot(trimmed, root, injectedLlm, (prompt) => confirmWithReadline(rl, prompt));
+      try {
+        await runOneShot(trimmed, root, injectedLlm, (prompt) => confirmWithReadline(rl, prompt));
+      } catch (error) {
+        console.error(`Task failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.log("You can retry your request, inspect /config, or /exit. Changes already made are kept.");
+      }
     }
   } finally {
     rl.close();

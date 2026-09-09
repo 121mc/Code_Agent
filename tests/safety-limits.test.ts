@@ -395,12 +395,13 @@ describe("confirmation paths and safety limits", () => {
 
     const result = await runAgentTask({
       userRequest: "run tests and repair once",
+      maxAutomaticRepairAttempts: 1,
       context,
       llm,
       routerOptions: { commandExecutor }
     });
 
-    expect(result.final.summary).toMatch(/Stopped after .*test/i);
+    expect(result.final.summary).toMatch(/Stopped after .*repair limit/i);
     expect(result.session.automaticRepairAttempts).toBe(1);
     expect(result.session.commandResults).toHaveLength(2);
     expect(result.session.commandResults.map((commandResult) => commandResult.exitCode)).toEqual([1, 1]);
@@ -409,7 +410,7 @@ describe("confirmation paths and safety limits", () => {
 
     const firstFailedObservation = JSON.parse(llm.calls[2]?.at(-1)?.content ?? "{}") as { output?: string };
     expect(firstFailedObservation.output).toContain(
-      "One automatic repair attempt is allowed. Diagnose and emit the next tool call."
+      "Automatic repair attempt 1/1. Diagnose the test failure, fix the code, and rerun tests."
     );
   });
 
@@ -431,12 +432,13 @@ describe("confirmation paths and safety limits", () => {
 
     const result = await runAgentTask({
       userRequest: "run focused tests and repair once",
+      maxAutomaticRepairAttempts: 1,
       context,
       llm,
       routerOptions: { confirm, commandExecutor }
     });
 
-    expect(result.final.summary).toMatch(/Stopped after .*test/i);
+    expect(result.final.summary).toMatch(/Stopped after .*repair limit/i);
     expect(result.final.tests).toBe("npx vitest run exited 1");
     expect(result.session.automaticRepairAttempts).toBe(1);
     expect(result.session.commandResults).toHaveLength(2);

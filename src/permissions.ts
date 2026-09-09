@@ -1,7 +1,7 @@
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 
 export type PermissionDecision = "allow" | "confirm" | "block";
-export type FileAction = "read" | "edit";
+export type FileAction = "read" | "edit" | "create";
 
 export interface PermissionResult {
   decision: PermissionDecision;

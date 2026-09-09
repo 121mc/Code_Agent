@@ -1,4 +1,4 @@
-export const TOOL_NAMES = ["search", "read_file", "edit_file", "run_command", "diff"] as const;
+export const TOOL_NAMES = ["search", "read_file", "create_file", "edit_file", "run_command", "diff"] as const;
 
 export type ToolName = typeof TOOL_NAMES[number];
 

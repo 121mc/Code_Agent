@@ -1,5 +1,22 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseEnv } from "node:util";
+import { DEFAULT_AGENT_LIMITS, validateLimit } from "./limits.js";
+
+export async function loadAgentLimits(configRoot = getAgentRoot()) {
+  const env = await readConfigFile(join(configRoot, ".env"));
+  const read = (key: string, fallback: number, minimum = 1) => {
+    const value = env[key];
+    return value === undefined ? fallback : validateLimit(key, value.trim() ? Number(value) : NaN, minimum);
+  };
+  return {
+    maxAutomaticRepairAttempts: read("CODE_AGENT_MAX_REPAIR_ATTEMPTS", DEFAULT_AGENT_LIMITS.maxAutomaticRepairAttempts, 0),
+    maxToolCalls: read("CODE_AGENT_MAX_TOOL_CALLS", DEFAULT_AGENT_LIMITS.maxToolCalls),
+    maxLlmTurns: read("CODE_AGENT_MAX_LLM_TURNS", DEFAULT_AGENT_LIMITS.maxLlmTurns)
+  };
+}
 
 export interface ModelConfig {
   baseURL: string;
@@ -13,24 +30,32 @@ export interface DisplayModelConfig {
   model: string;
 }
 
-export async function loadModelConfig(
-  root: string,
-  env: NodeJS.ProcessEnv = process.env
-): Promise<ModelConfig> {
-  const fileConfig = await readConfigFile(root);
+export function getAgentRoot(moduleUrl = import.meta.url): string {
+  let directory = dirname(realpathSync(fileURLToPath(moduleUrl)));
+  while (!existsSync(join(directory, "package.json"))) {
+    const parent = dirname(directory);
+    if (parent === directory) throw new Error("Cannot locate code-agent package root.");
+    directory = parent;
+  }
+  return directory;
+}
 
-  const baseURL = env.CODE_AGENT_BASE_URL ?? fileConfig.baseURL;
-  const apiKey = env.CODE_AGENT_API_KEY ?? fileConfig.apiKey;
-  const model = env.CODE_AGENT_MODEL ?? fileConfig.model;
+// The optional root is for isolated configuration tests, never the task workspace.
+export async function loadModelConfig(configRoot = getAgentRoot()): Promise<ModelConfig> {
+  const envPath = join(configRoot, ".env");
+  const env = await readConfigFile(envPath);
+  const baseURL = env.CODE_AGENT_BASE_URL;
+  const apiKey = env.CODE_AGENT_API_KEY;
+  const model = env.CODE_AGENT_MODEL;
 
   if (!baseURL) {
-    throw new Error("Missing CODE_AGENT_BASE_URL or .code-agent/config.json baseURL.");
+    throw new Error(`Missing CODE_AGENT_BASE_URL in ${envPath}.`);
   }
   if (!apiKey) {
-    throw new Error("Missing CODE_AGENT_API_KEY or .code-agent/config.json apiKey.");
+    throw new Error(`Missing CODE_AGENT_API_KEY in ${envPath}.`);
   }
   if (!model) {
-    throw new Error("Missing CODE_AGENT_MODEL or .code-agent/config.json model.");
+    throw new Error(`Missing CODE_AGENT_MODEL in ${envPath}.`);
   }
 
   return { baseURL, apiKey, model };
@@ -44,15 +69,10 @@ export function maskConfigForDisplay(config: ModelConfig): DisplayModelConfig {
   };
 }
 
-async function readConfigFile(root: string): Promise<Partial<ModelConfig>> {
+async function readConfigFile(envPath: string): Promise<Record<string, string | undefined>> {
   try {
-    const raw = await readFile(join(root, ".code-agent", "config.json"), "utf8");
-    const parsed = JSON.parse(raw) as Partial<ModelConfig>;
-    return {
-      baseURL: typeof parsed.baseURL === "string" ? parsed.baseURL : undefined,
-      apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : undefined,
-      model: typeof parsed.model === "string" ? parsed.model : undefined
-    };
+    const raw = await readFile(envPath, "utf8");
+    return parseEnv(raw.replace(/^\uFEFF/, ""));
   } catch (error: unknown) {
     const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
     if (code === "ENOENT") {
