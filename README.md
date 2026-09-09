@@ -130,7 +130,7 @@ Known limits:
 - `.code-agent/config.json` and real `.env*` configuration are ignored by Git; `.env.example` contains placeholders only.
 - `/config` masks the API key before display.
 - File tools restrict reads and edits to the startup workspace and require confirmation for sensitive targets such as `.env*`, lockfiles, CI files, and private key material.
-- Command tools allow common test, lint, and build commands automatically, require confirmation for unknown or network/dependency commands, and block destructive command variants.
+- `run_command` accepts all non-empty shell commands without confirmation, including scripts, dependency installation, network/Git operations, pipelines, redirection and deletion commands. Commands run with the current OS user permissions in the task workspace; the file-tool path restrictions do not sandbox shell commands. Windows uses `cmd.exe` (invoke `powershell` or `pwsh` explicitly for their syntax); other platforms use `/bin/sh`. The 120-second timeout, command exit/output recording and task-level limits remain active.
 
 ## Directory Structure
 

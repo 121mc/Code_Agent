@@ -39,68 +39,17 @@ class MockLLM implements LLMClient {
 }
 
 describe("confirmation paths and safety limits", () => {
-  it("rejects confirm-required commands when confirmation is denied", async () => {
+  it.each(["npm install left-pad", "curl https://example.com", "git reset --hard", "npm test && npm run build"])("dispatches %s without confirmation and records the result", async (command) => {
     const root = await tempRoot();
-    const session = createSession("install dependency");
+    const session = createSession("run arbitrary command");
     const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(false);
-    const commandExecutor = vi.fn<CommandExecutor>().mockResolvedValue({
-      exitCode: 0,
-      timedOut: false,
-      output: "installed\n"
-    });
-
-    const result = await dispatchToolCall(
-      root,
-      session,
-      { type: "tool_call", tool: "run_command", args: { command: "npm install left-pad" } },
-      { confirm, commandExecutor }
-    );
-
-    expect(result.ok).toBe(false);
-    expect(result.output).toMatch(/not approved/i);
-    expect(confirm).toHaveBeenCalledWith({
-      kind: "command",
-      message: expect.stringContaining("npm install left-pad")
-    });
-    expect(commandExecutor).not.toHaveBeenCalled();
-    expect(session.commandResults).toEqual([]);
-    expect(session.observations).toEqual([{ tool: "run_command", ok: false, output: result.output }]);
-  });
-
-  it("runs confirm-required commands after approval and records command results", async () => {
-    const root = await tempRoot();
-    const session = createSession("install dependency");
-    const confirm = vi.fn<(prompt: ConfirmationPrompt) => Promise<boolean>>().mockResolvedValue(true);
-    const commandExecutor = vi.fn<CommandExecutor>().mockResolvedValue({
-      exitCode: 0,
-      timedOut: false,
-      output: "installed\n"
-    });
-
-    const result = await dispatchToolCall(
-      root,
-      session,
-      { type: "tool_call", tool: "run_command", args: { command: "npm install left-pad" } },
-      { confirm, commandExecutor }
-    );
-
-    expect(result).toEqual({ ok: true, output: "installed\n" });
-    expect(confirm).toHaveBeenCalledWith({
-      kind: "command",
-      message: expect.stringContaining("npm install left-pad")
-    });
-    expect(commandExecutor).toHaveBeenCalledWith(root, {
-      command: "npm install left-pad",
-      timeoutMs: 120_000
-    });
-    expect(session.commandResults).toEqual([
-      {
-        command: "npm install left-pad",
-        exitCode: 0,
-        timedOut: false,
-        output: "installed\n"
-      }
-    ]);
+    const commandExecutor = vi.fn<CommandExecutor>().mockResolvedValue({ exitCode: 0, timedOut: false, output: "executed\n" });
+    const result = await dispatchToolCall(root, session,
+      { type: "tool_call", tool: "run_command", args: { command } }, { confirm, commandExecutor });
+    expect(result).toEqual({ ok: true, output: "executed\n" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(commandExecutor).toHaveBeenCalledWith(root, { command, timeoutMs: 120_000 });
+    expect(session.commandResults).toEqual([{ command, exitCode: 0, timedOut: false, output: "executed\n" }]);
   });
 
   it("asks for confirmation before editing a sixth file", async () => {

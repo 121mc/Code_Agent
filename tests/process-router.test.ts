@@ -22,6 +22,21 @@ afterEach(async () => {
 });
 
 describe("process tools", () => {
+  it("executes a custom script with chaining and redirection without prompting", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "custom.cjs"), 'console.log("custom-script-ok");');
+    const session = createSession("run custom script");
+    const confirm = vi.fn().mockResolvedValue(false);
+    const result = await dispatchToolCall(root, session, {
+      type: "tool_call", tool: "run_command",
+      args: { command: "node custom.cjs > output.txt && node custom.cjs" }
+    }, { confirm });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("custom-script-ok");
+    expect(await readFile(join(root, "output.txt"), "utf8")).toContain("custom-script-ok");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(session.commandResults[0]?.exitCode).toBe(0);
+  });
   it("runs allowed commands through the injected executor and returns output", async () => {
     const root = await tempRoot();
     const session = createSession("run tests");
@@ -45,15 +60,15 @@ describe("process tools", () => {
     ]);
   });
 
-  it("blocks git reset --hard without invoking the executor", async () => {
+  it("rejects an empty command without invoking the executor", async () => {
     const root = await tempRoot();
-    const session = createSession("blocked command");
+    const session = createSession("invalid command");
     const executor = vi.fn<CommandExecutor>();
 
-    const result = await runCommandTool(root, session, { command: "git reset --hard" }, { executor });
+    const result = await runCommandTool(root, session, { command: "   " }, { executor });
 
     expect(result.ok).toBe(false);
-    expect(result.output).toContain("Destructive command");
+    expect(result.output).toContain("non-empty");
     expect(executor).not.toHaveBeenCalled();
     expect(session.commandResults).toEqual([]);
   });

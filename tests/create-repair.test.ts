@@ -126,13 +126,13 @@ describe("repair budgets", () => {
     expect(result.final.summary).toContain(`repair limit (${budget})`);
   });
 
-  it("does not spend repair budget on a denied test command", async () => {
+  it("does not spend repair budget on an invalid command", async () => {
     const root = await fixture();
     let turns = 0;
     const result = await runAgentTask({ userRequest: "test", context: await loadProjectContext(root),
       llm: { complete: async () => JSON.stringify(turns++ === 0
         ? { type: "plan", summary: "test", steps: ["test"] }
-        : { type: "tool_call", tool: "run_command", args: { command: "npm test && echo done" } }) }
+        : { type: "tool_call", tool: "run_command", args: { command: "" } }) }
     });
     expect(result.session.automaticRepairAttempts).toBe(0);
     expect(result.session.commandResults).toEqual([]);
