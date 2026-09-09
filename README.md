@@ -68,7 +68,7 @@ cd /d D:\your-target-project
 code-agent
 ```
 
-The launcher `code-agent.cmd` retains the terminal's working directory as the task workspace, while configuration always comes from code-agent's own root. Keep this checkout in place; after moving it, rerun setup and remove its old PATH entry. If another global installation shadows this command, use `where code-agent` to locate it or invoke this project's `code-agent.cmd` directly.
+The launcher `code-agent.cmd` retains the terminal's working directory as the task workspace, while configuration always comes from code-agent's own root. After building, `init.bat` also runs `npm link --offline --ignore-scripts` so npm's global launchers (including PowerShell's `code-agent.ps1`) point to this checkout instead of a previously installed copy. This requires write access to your active npm global prefix. Keep this checkout in place; after moving it or switching Node.js versions, rerun setup and remove its old PATH entry. Use `Get-Command code-agent -All` in PowerShell to inspect command resolution; `where.exe code-agent` alone does not show PowerShell scripts. To refresh only the global link without reentering API settings, run `npm run build` followed by `npm link --offline --ignore-scripts` in this checkout.
 
 ## Usage
 

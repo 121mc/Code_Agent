@@ -12,6 +12,8 @@ call npm ci
 if errorlevel 1 goto failed
 call npm run build
 if errorlevel 1 goto failed
+call npm link --offline --ignore-scripts
+if errorlevel 1 goto failed
 echo Ready. Open a new terminal and run code-agent.
 popd
 pause
