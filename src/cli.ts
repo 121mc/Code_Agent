@@ -124,7 +124,6 @@ async function runOneShot(
   const diff = await runDiffTool(root, result.session, context.isGitRepository);
 
   console.log("Done.");
-  console.log(result.final.summary);
   console.log(`Tests: ${result.final.tests}`);
   console.log("Changed files:");
   for (const file of result.final.changedFiles) {
@@ -132,6 +131,8 @@ async function runOneShot(
   }
   console.log("Diff:");
   console.log(diff.output);
+  console.log("");
+  console.log(result.final.summary);
 }
 
 async function runRepl(root: string, injectedLlm?: LLMClient): Promise<void> {
